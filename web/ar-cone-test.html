@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23e</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23f</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -483,7 +483,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23e\n`+
+    `build 2026-07-23f\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -502,7 +502,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23e\nsetting up session…";
+  $("debug").textContent="build 2026-07-23f\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
@@ -511,7 +511,6 @@ async function start(){
 
     try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
     catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
-    renderer.xr.setReferenceSpace(localSpace);
 
     viewerSpace=await session.requestReferenceSpace("viewer");
     try{
