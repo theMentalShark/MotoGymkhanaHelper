@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23c</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23d</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -440,44 +440,52 @@ $("rCopy").onclick=()=>{
 /* ---------- XR loop ---------- */
 function onFrame(t,frame){
   const D=S.dbg;
-  if(!frame){renderer.render(scene,camera);return;}
-  D.frames++;
-  const pose=frame.getViewerPose(localSpace);
-  S.tracking=!!pose;
-  if(pose){ D.poseOk++; D.emulated=pose.emulatedPosition?1:0; }
-  else D.poseNull++;
+  D.cbCount=(D.cbCount||0)+1;
+  try{
+    if(!frame){ D.noFrame=(D.noFrame||0)+1; }
+    else{
+      D.frames++;
+      const pose=frame.getViewerPose(localSpace);
+      S.tracking=!!pose;
+      if(pose){ D.poseOk++; D.emulated=pose.emulatedPosition?1:0; }
+      else D.poseNull++;
 
-  if(pose){
-    // integrate walked distance (horizontal only)
-    const p=camPos();
-    if(S.lastCam){
-      const d=Math.hypot(p.x-S.lastCam.x,p.z-S.lastCam.z);
-      if(d>0.02&&d<2) S.walked+=d;       // ignore jitter and relocalisation jumps
+      if(pose){
+        // integrate walked distance (horizontal only)
+        const p=camPos();
+        if(S.lastCam){
+          const d=Math.hypot(p.x-S.lastCam.x,p.z-S.lastCam.z);
+          if(d>0.02&&d<2) S.walked+=d;       // ignore jitter and relocalisation jumps
+        }
+        S.lastCam=p.clone();
+      }
+
+      // hit test for the reticle (scan phase, and check phase for aiming at cone bases)
+      D.hitSourceOk=!!hitSource;
+      if(hitSource&&(S.phase==="scan"||S.phase==="check")){
+        D.hitTries++;
+        const hits=frame.getHitTestResults(hitSource);
+        if(hits.length){
+          D.hitCount++;
+          const hp=hits[0].getPose(localSpace);
+          reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
+        } else reticle.visible=false;
+      } else reticle.visible=false;
     }
-    S.lastCam=p.clone();
-  }
+  }catch(e){ D.lastErr=(e&&e.message)||String(e); }
 
-  // hit test for the reticle (scan phase, and check phase for aiming at cone bases)
-  D.hitSourceOk=!!hitSource;
-  if(hitSource&&(S.phase==="scan"||S.phase==="check")){
-    D.hitTries++;
-    const hits=frame.getHitTestResults(hitSource);
-    if(hits.length){
-      D.hitCount++;
-      const hp=hits[0].getPose(localSpace);
-      reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
-    } else reticle.visible=false;
-  } else reticle.visible=false;
-
-  if(t-(onFrame.last||0)>120){ onFrame.last=t; updateHUD(); updateDebug(); }
-  renderer.render(scene,camera);
+  try{
+    if(t-(onFrame.last||0)>120){ onFrame.last=t; updateHUD(); updateDebug(); }
+    renderer.render(scene,camera);
+  }catch(e){ D.lastErr=(e&&e.message)||String(e); }
 }
 
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23c\n`+
-    `refSpace=${D.refSpace}  frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
+    `build 2026-07-23d\n`+
+    `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
+    `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
 }
 
@@ -514,6 +522,7 @@ async function start(){
 
   setPhase("scan");
   renderer.setAnimationLoop(onFrame);
+  setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 }
 
 /* ---------- boot ---------- */
