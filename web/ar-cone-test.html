@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23h</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23i</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -197,6 +197,7 @@ const COURSE=[
 const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
 // re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin
 const ORIGIN={x:6.75,y:1.5};
+const Y_CAL_OFFSET=-37*0.0254; // meters; ground hit-test was reading ~37in too high
 
 /* ---------- state ---------- */
 const S={
@@ -361,6 +362,7 @@ function onMain(){
     fwd.y=0;
     if(fwd.lengthSq()<1e-6) fwd.set(0,0,-1); else fwd.normalize();
     courseGroup.position.copy(p).addScaledVector(fwd,1.0);
+    courseGroup.position.y+=Y_CAL_OFFSET;   // calibration fix: hit-test ground was reading ~37in too high
     courseGroup.rotation.y=0; S.yaw=0;
     buildCourse(); S.anchored=true;
     reticle.visible=false;
@@ -488,7 +490,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23h\n`+
+    `build 2026-07-23i\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -507,7 +509,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23h\nsetting up session…";
+  $("debug").textContent="build 2026-07-23i\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
