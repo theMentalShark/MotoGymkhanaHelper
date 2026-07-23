@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23f</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23g</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -195,6 +195,8 @@ const COURSE=[
   {id:"NE",  x:13.5, y:17, c:"org", note:"corner"}
 ];
 const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
+// re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin
+const ORIGIN={x:6.75,y:1.5};
 
 /* ---------- state ---------- */
 const S={
@@ -244,19 +246,21 @@ function buildCourse(){
   S.cones=[];
 
   // perimeter outline on the ground
-  const pts=[[0,0],[13.5,0],[13.5,17],[0,17],[0,0]].map(p=>new THREE.Vector3(p[0],0.01,-p[1]));
+  const pts=[[0,0],[13.5,0],[13.5,17],[0,17],[0,0]]
+    .map(p=>new THREE.Vector3(p[0]-ORIGIN.x,0.01,-(p[1]-ORIGIN.y)));
   courseGroup.add(new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({color:0x37c4ff,transparent:true,opacity:.5})));
-  // gate box
-  const gp=[[6,0],[7.5,0],[7.5,3],[6,3],[6,0]].map(p=>new THREE.Vector3(p[0],0.01,-p[1]));
+  // gate box (start/finish)
+  const gp=[[6,0],[7.5,0],[7.5,3],[6,3],[6,0]]
+    .map(p=>new THREE.Vector3(p[0]-ORIGIN.x,0.01,-(p[1]-ORIGIN.y)));
   courseGroup.add(new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(gp),
     new THREE.LineBasicMaterial({color:0x39ff14,transparent:true,opacity:.6})));
 
   COURSE.forEach((d,i)=>{
     const g=new THREE.Group();
-    g.position.set(d.x,0,-d.y);
+    g.position.set(d.x-ORIGIN.x,0,-(d.y-ORIGIN.y));
     const col=COL[d.c];
     // ghost cone
     const cone=new THREE.Mesh(
@@ -268,11 +272,11 @@ function buildCourse(){
       new THREE.RingGeometry(0.20,0.26,28).rotateX(-Math.PI/2),
       new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.8,side:THREE.DoubleSide}));
     ring.position.y=0.005; g.add(ring);
-    // vertical beacon so you can spot it from across the lot
+    // low marker post — kept below head height so it doesn't block the view up close
     const beam=new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012,0.012,2.2,6),
+      new THREE.CylinderGeometry(0.012,0.012,0.6,6),
       new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.30}));
-    beam.position.y=1.1; g.add(beam);
+    beam.position.y=0.3; g.add(beam);
     courseGroup.add(g);
 
     S.cones.push({def:d,node:g,cone,ring,beam,target:null,placedAt:null,checkAt:null,walkAt:0});
@@ -355,7 +359,13 @@ function onMain(){
   if(S.phase==="scan"){
     if(!reticle.visible) return;
     const p=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-    courseGroup.position.copy(p);
+    // place the start/finish box ~1m ahead of the tap point, along the camera's facing direction
+    const camQ=new THREE.Quaternion();
+    renderer.xr.getCamera(camera).getWorldQuaternion(camQ);
+    const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(camQ);
+    fwd.y=0;
+    if(fwd.lengthSq()<1e-6) fwd.set(0,0,-1); else fwd.normalize();
+    courseGroup.position.copy(p).addScaledVector(fwd,1.0);
     courseGroup.rotation.y=0; S.yaw=0;
     buildCourse(); S.anchored=true;
     reticle.visible=false;
@@ -483,7 +493,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23f\n`+
+    `build 2026-07-23g\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -502,7 +512,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23f\nsetting up session…";
+  $("debug").textContent="build 2026-07-23g\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
