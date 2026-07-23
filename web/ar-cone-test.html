@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23i</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23j</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -104,10 +104,10 @@
   <div class="card">
     <h2>PROCEDURE</h2>
     <ol>
-      <li>Point at the ground, move phone slowly until the ring locks on.</li>
-      <li>Tap to drop the course origin (this is the SW corner).</li>
-      <li>Rotate with the slider so the course fits your lot. Lock it.</li>
-      <li>Walk to each ghost cone, put a real cone on it, tap <b>PLACED</b>.</li>
+      <li>Point the phone at the ground — the course follows wherever the camera's center beam hits, live.</li>
+      <li>Use the sliders to rotate the course and fine-tune ground height (it pivots around the green start/finish box). Watch the cross-hatch ground overlay to verify height.</li>
+      <li>Tap <b>LOCK COURSE</b> once it's positioned correctly.</li>
+      <li>Walk to each ghost cone (red; the start/finish box is green), put a real cone on it, tap <b>PLACED</b>.</li>
       <li>When all are down, walk back around. Aim the ring at each real cone base and tap <b>CHECK</b>.</li>
       <li>Read the drift table. Verify a couple with a tape measure.</li>
     </ol>
@@ -137,6 +137,8 @@
     <div id="slider">
       <div class="lbl"><span>rotate course</span><span id="rotVal">0°</span></div>
       <input id="rot" type="range" min="0" max="359" value="0">
+      <div class="lbl" style="margin-top:6px"><span>ground height</span><span id="heightVal">-37in</span></div>
+      <input id="height" type="range" min="-80" max="40" value="-37">
     </div>
   </div>
 
@@ -147,7 +149,7 @@
 
   <div>
     <div class="btns" style="margin-bottom:8px">
-      <button class="b main" id="bMain">TAP GROUND</button>
+      <button class="b main" id="bMain">LOCK COURSE</button>
       <button class="b chk" id="bCheck" style="display:none">CHECK</button>
     </div>
     <div class="btns">
@@ -181,28 +183,30 @@ const $=id=>document.getElementById(id);
 /* ---------- course: 2022 MGymfun OLC Round 1 ----------
    origin = SW corner (0,0); +x east (13.5 m), +y north (17 m) */
 const COURSE=[
-  {id:"SW",  x:0,    y:0,  c:"org", note:"origin corner"},
+  {id:"SW",  x:0,    y:0,  c:"red", note:"origin corner"},
   {id:"G1",  x:6,    y:0,  c:"grn", note:"gate SW"},
   {id:"G2",  x:7.5,  y:0,  c:"grn", note:"gate SE"},
-  {id:"SE",  x:13.5, y:0,  c:"org", note:"corner"},
+  {id:"SE",  x:13.5, y:0,  c:"red", note:"corner"},
   {id:"G3",  x:6,    y:3,  c:"grn", note:"gate NW"},
   {id:"G4",  x:7.5,  y:3,  c:"grn", note:"gate NE"},
   {id:"S1",  x:6,    y:4,  c:"red", note:"spine"},
   {id:"S2",  x:6,    y:8,  c:"red", note:"spine"},
-  {id:"A1",  x:10,   y:8,  c:"blu", note:"arm"},
+  {id:"A1",  x:10,   y:8,  c:"red", note:"arm"},
   {id:"S3",  x:6,    y:12, c:"red", note:"spine"},
-  {id:"NW",  x:0,    y:17, c:"org", note:"corner"},
-  {id:"NE",  x:13.5, y:17, c:"org", note:"corner"}
+  {id:"NW",  x:0,    y:17, c:"red", note:"corner"},
+  {id:"NE",  x:13.5, y:17, c:"red", note:"corner"}
 ];
 const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
-// re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin
+// re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin —
+// rotation pivots around this point since it's local (0,0,0) inside courseGroup
 const ORIGIN={x:6.75,y:1.5};
-const Y_CAL_OFFSET=-37*0.0254; // meters; ground hit-test was reading ~37in too high
+const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user-adjustable via slider
 
 /* ---------- state ---------- */
 const S={
-  phase:"scan",          // scan | rotate | place | check | done
-  anchored:false, yaw:0,
+  phase:"aim",            // aim | place | check | done
+  anchored:false, yaw:0, heightIn:HEIGHT_DEFAULT_IN,
+  builtOnce:false,
   cones:[],              // {def, target:Vector3, placedAt:Vector3|null, checkAt:Vector3|null, walkAt:number}
   cur:0,
   walked:0, lastCam:null,
@@ -211,7 +215,21 @@ const S={
 };
 
 /* ---------- three.js ---------- */
-let renderer,scene,camera,reticle,courseGroup,hitSource=null,localSpace=null,viewerSpace=null,session=null;
+let renderer,scene,camera,reticle,courseGroup,groundOverlay,hitSource=null,localSpace=null,viewerSpace=null,session=null;
+
+function makeCrossTexture(){
+  const size=256, cv=document.createElement("canvas"); cv.width=cv.height=size;
+  const ctx=cv.getContext("2d");
+  ctx.strokeStyle="rgba(55,196,255,0.9)"; ctx.lineWidth=3;
+  const step=size/8;
+  for(let i=0;i<=size;i+=step){
+    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(size,i); ctx.stroke();
+  }
+  const tex=new THREE.CanvasTexture(cv);
+  tex.wrapS=tex.wrapT=THREE.RepeatWrapping; tex.repeat.set(6,6);
+  return tex;
+}
 
 function initGL(){
   scene=new THREE.Scene();
@@ -235,6 +253,15 @@ function initGL(){
   scene.add(reticle);
 
   courseGroup=new THREE.Group(); courseGroup.visible=false; scene.add(courseGroup);
+
+  // ground-confirmation overlay: cross-hatch plane at whatever height the app currently
+  // thinks the ground is, so you can visually verify against the real floor
+  const groundGeo=new THREE.PlaneGeometry(3,3).rotateX(-Math.PI/2);
+  const groundMat=new THREE.MeshBasicMaterial({map:makeCrossTexture(),transparent:true,opacity:.5,side:THREE.DoubleSide,depthWrite:false});
+  groundOverlay=new THREE.Mesh(groundGeo,groundMat);
+  groundOverlay.visible=false;
+  scene.add(groundOverlay);
+
   addEventListener("resize",()=>{
     camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(innerWidth,innerHeight);
@@ -305,10 +332,10 @@ function activeIndex(){
 function setPhase(p){
   S.phase=p;
   const main=$("bMain"),chk=$("bCheck");
-  if(p==="scan"){ main.style.display=""; chk.style.display="none"; main.textContent="TAP GROUND"; $("slider").classList.remove("on"); }
-  if(p==="rotate"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on"); }
+  if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on");
+    groundOverlay.visible=false; }
   if(p==="place"){ main.style.display=""; chk.style.display="none"; main.textContent="PLACED ✓"; $("slider").classList.remove("on");
-    $("bPhase").textContent="Done placing →"; }
+    $("bPhase").textContent="Done placing →"; groundOverlay.visible=false; }
   if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
     $("bPhase").textContent="↺ Back to placing"; }
   updateHUD();
@@ -332,8 +359,13 @@ function updateHUD(){
   } else $("sDrift").innerHTML="drift <b>—</b>";
 
   const i=activeIndex();
-  if(S.phase==="scan"){ $("prompt").innerHTML="Move slowly until the ring locks on the ground, then tap to drop the <b>SW corner</b>."; $("target").textContent="—"; $("tdist").innerHTML="&nbsp;"; }
-  else if(S.phase==="rotate"){ $("prompt").innerHTML="Rotate so the course fits your lot, then <b>LOCK</b>."; $("target").textContent="ROTATE"; $("tdist").textContent=S.yaw+"°"; }
+  if(S.phase==="aim"){
+    $("prompt").innerHTML=S.builtOnce
+      ? "Course follows where you point. Adjust rotation/ground height, then <b>LOCK COURSE</b>."
+      : "Point at the ground and move slowly until the course appears.";
+    $("target").textContent=S.builtOnce?"AIM":"—";
+    $("tdist").textContent=S.builtOnce?("yaw "+S.yaw+"° · ground "+S.heightIn+"in"):" ";
+  }
   else if(i<0){
     $("prompt").innerHTML=S.phase==="check"?"All cones re-checked — open <b>Results</b>.":"All cones placed. Walk back and tap <b>Done placing →</b> to start checking.";
     $("target").textContent="✓ ALL"; $("tdist").innerHTML="&nbsp;";
@@ -352,23 +384,11 @@ function updateHUD(){
 
 /* ---------- interactions ---------- */
 function onMain(){
-  if(S.phase==="scan"){
-    if(!reticle.visible) return;
-    const p=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-    // place the start/finish box ~1m ahead of the tap point, along the camera's facing direction
-    const camQ=new THREE.Quaternion();
-    renderer.xr.getCamera(camera).getWorldQuaternion(camQ);
-    const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(camQ);
-    fwd.y=0;
-    if(fwd.lengthSq()<1e-6) fwd.set(0,0,-1); else fwd.normalize();
-    courseGroup.position.copy(p).addScaledVector(fwd,1.0);
-    courseGroup.position.y+=Y_CAL_OFFSET;   // calibration fix: hit-test ground was reading ~37in too high
-    courseGroup.rotation.y=0; S.yaw=0;
-    buildCourse(); S.anchored=true;
-    reticle.visible=false;
-    setPhase("rotate");
-  } else if(S.phase==="rotate"){
-    refreshTargets(); setPhase("place");
+  if(S.phase==="aim"){
+    if(!S.builtOnce) return;   // nothing to lock until the course has appeared on the ground
+    refreshTargets();
+    groundOverlay.visible=false;
+    setPhase("place");
   } else if(S.phase==="place"){
     const i=activeIndex(); if(i<0)return;
     const c=S.cones[i];
@@ -402,6 +422,10 @@ $("rot").oninput=e=>{
   S.yaw=+e.target.value; $("rotVal").textContent=S.yaw+"°";
   courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
   refreshTargets(); updateHUD();
+};
+$("height").oninput=e=>{
+  S.heightIn=+e.target.value; $("heightVal").textContent=S.heightIn+"in";
+  updateHUD();
 };
 
 /* ---------- results ---------- */
@@ -467,16 +491,28 @@ function onFrame(t,frame){
         S.lastCam=p.clone();
       }
 
-      // hit test for the reticle (scan phase, and check phase for aiming at cone bases)
+      // hit test: camera-center beam onto the ground. Drives live course placement while
+      // aiming, and the aiming reticle while checking real cone bases.
       D.hitSourceOk=!!hitSource;
-      if(hitSource&&(S.phase==="scan"||S.phase==="check")){
+      if(hitSource&&(S.phase==="aim"||S.phase==="check")){
         D.hitTries++;
         const hits=frame.getHitTestResults(hitSource);
         if(hits.length){
           D.hitCount++;
           const hp=hits[0].getPose(localSpace);
           reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
-        } else reticle.visible=false;
+
+          if(S.phase==="aim"){
+            const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+            const groundY=hitPos.y+S.heightIn*0.0254;
+            if(!S.builtOnce){ buildCourse(); S.builtOnce=true; S.anchored=true; }
+            courseGroup.position.set(hitPos.x,groundY,hitPos.z);
+            courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
+            refreshTargets();
+            groundOverlay.position.set(hitPos.x,groundY,hitPos.z);
+            groundOverlay.visible=true;
+          }
+        } else { reticle.visible=false; if(S.phase==="aim") groundOverlay.visible=false; }
       } else reticle.visible=false;
     }
   }catch(e){ D.lastErr=(e&&e.message)||String(e); }
@@ -490,7 +526,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23i\n`+
+    `build 2026-07-23j\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -509,7 +545,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23i\nsetting up session…";
+  $("debug").textContent="build 2026-07-23j\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
@@ -529,7 +565,7 @@ async function start(){
       hitSource=null; session=null;
     });
 
-    setPhase("scan");
+    setPhase("aim");
     renderer.setAnimationLoop(onFrame);
   }catch(e){
     S.dbg.lastErr="SETUP FAILED: "+((e&&e.message)||String(e));
