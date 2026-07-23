@@ -91,6 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23c</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -475,6 +476,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
+    `build 2026-07-23c\n`+
     `refSpace=${D.refSpace}  frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
 }
