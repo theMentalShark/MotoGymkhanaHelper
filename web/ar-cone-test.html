@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AR Cone Layout — Drift Test</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:rgba(20,24,31,.92); --line:#2d343f;
+    --ink:#e9ecf0; --dim:#9aa3ae; --faint:#6b7480;
+    --grn:#39ff14; --red:#ff2d2d; --blu:#4d7dff; --org:#ff6a1a; --cy:#37c4ff;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,sans-serif;font-size:14px;overscroll-behavior:none}
+  button{font-family:inherit;cursor:pointer;border:none}
+
+  /* ---------- launch screen ---------- */
+  #launch{position:fixed;inset:0;display:block;padding:24px 24px 96px;z-index:10;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;
+    background:linear-gradient(160deg,#141821,#0d0f14)}
+  #launch h1{font-size:20px;margin:0 0 4px;letter-spacing:.01em}
+  #launch .sub{color:var(--faint);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:20px}
+  .card{background:#171b23;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .card h2{margin:0 0 8px;font-size:13px;color:var(--cy);letter-spacing:.04em}
+  .card p{margin:0 0 8px;color:var(--dim);font-size:12.5px;line-height:1.6}
+  .card p:last-child{margin-bottom:0}
+  .card ol{margin:0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.75}
+  #gowrap{position:fixed;left:0;right:0;bottom:0;padding:12px 24px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg,rgba(13,15,20,0),#0d0f14 38%);z-index:11}
+  #go{background:var(--org);color:#1a1209;font-weight:700;font-size:16px;padding:16px;
+    border-radius:12px;width:100%;display:block}
+  #go:disabled{background:#2a2f38;color:var(--faint)}
+  #err{color:var(--red);font-size:12.5px;line-height:1.6;margin-top:10px}
+
+  /* ---------- AR overlay ---------- */
+  #overlay{position:fixed;inset:0;display:none;flex-direction:column;z-index:15;
+    justify-content:space-between;pointer-events:none;padding:10px}
+  #overlay.on{display:flex}
+  .hud{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px 12px;backdrop-filter:blur(8px);pointer-events:auto}
+  .row{display:flex;gap:8px;align-items:center}
+  .stat{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim);
+    background:#11141a;border:1px solid var(--line);border-radius:7px;padding:5px 8px;white-space:nowrap}
+  .stat b{color:var(--ink);font-weight:600}
+  .stat.good b{color:var(--grn)} .stat.warn b{color:var(--org)} .stat.bad b{color:var(--red)}
+  #prompt{font-size:13.5px;line-height:1.45;margin-top:8px;color:var(--ink)}
+  #prompt b{color:var(--org)}
+  #target{font-family:ui-monospace,Menlo,monospace;font-size:26px;font-weight:700;
+    letter-spacing:.02em;line-height:1.1}
+  #tdist{font-family:ui-monospace,Menlo,monospace;font-size:15px;color:var(--cy);margin-top:2px}
+
+  .btns{display:flex;gap:8px;pointer-events:auto}
+  .b{flex:1;background:#232935;color:var(--ink);border:1px solid var(--line);
+    border-radius:12px;padding:15px 8px;font-size:14px;font-weight:600;text-align:center}
+  .b:active{filter:brightness(1.35)}
+  .b.main{background:var(--org);color:#1a1209;border-color:var(--org)}
+  .b.chk{background:var(--cy);color:#04222e;border-color:var(--cy)}
+  .b.sm{flex:0 0 auto;padding:15px 14px;font-size:13px;background:#1b202a;color:var(--dim)}
+  .b[disabled]{opacity:.4}
+
+  #slider{display:none;pointer-events:auto;margin-top:8px}
+  #slider.on{display:block}
+  #slider input{width:100%;accent-color:var(--org)}
+  #slider .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);
+    font-family:ui-monospace,monospace;margin-bottom:2px}
+
+  /* ---------- results ---------- */
+  #results{position:fixed;inset:0;background:#0f1116;padding:18px;overflow-y:auto;display:none;z-index:20}
+  #results.on{display:block}
+  #results h2{margin:0 0 12px;font-size:17px}
+  table{width:100%;border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px}
+  th{text-align:right;color:var(--faint);font-weight:500;padding:7px 6px;border-bottom:1px solid var(--line);
+    font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+  th:first-child{text-align:left}
+  td{text-align:right;padding:7px 6px;border-bottom:1px solid #1e232c}
+  td:first-child{text-align:left;color:var(--org)}
+  .d-ok{color:var(--grn)} .d-mid{color:var(--org)} .d-bad{color:var(--red)}
+  .summary{background:#171b23;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .summary div{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--dim)}
+  .summary div b{color:var(--ink);font-family:ui-monospace,monospace}
+  .rbtns{display:flex;gap:8px;margin-top:16px}
+  .rbtns button{flex:1;padding:14px;border-radius:10px;background:#232935;color:var(--ink);
+    border:1px solid var(--line);font-size:13px;font-weight:600}
+  .rbtns button.main{background:var(--org);color:#1a1209}
+</style>
+</head>
+<body>
+
+<!-- ================= LAUNCH ================= -->
+<div id="launch">
+  <h1>AR Cone Layout</h1>
+  <div class="sub">ARCore drift test · MGymfun R1</div>
+
+  <div class="card">
+    <h2>WHAT THIS MEASURES</h2>
+    <p>Pure ARCore tracking, no lighthouse, no laser. You anchor the course in AR, walk it out
+       placing real cones on the ghost markers, then walk back and re-check each one.</p>
+    <p>The re-check distance <b>is</b> the accumulated drift. It also logs how far you walked,
+       so you get drift as a % of path length.</p>
+  </div>
+
+  <div class="card">
+    <h2>PROCEDURE</h2>
+    <ol>
+      <li>Point at the ground, move phone slowly until the ring locks on.</li>
+      <li>Tap to drop the course origin (this is the SW corner).</li>
+      <li>Rotate with the slider so the course fits your lot. Lock it.</li>
+      <li>Walk to each ghost cone, put a real cone on it, tap <b>PLACED</b>.</li>
+      <li>When all are down, walk back around. Aim the ring at each real cone base and tap <b>CHECK</b>.</li>
+      <li>Read the drift table. Verify a couple with a tape measure.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>COURSE — 13.5 × 17 m</h2>
+    <p>2022 MGymfun OLC Round 1. 8 cones + 4 gate posts. Origin = SW corner,
+       +X east along the 13.5 m edge, +Y north along the 17 m edge.</p>
+  </div>
+
+  <div id="err"></div>
+</div>
+<div id="gowrap"><button id="go" disabled>Checking AR support…</button></div>
+
+<!-- ================= AR HUD ================= -->
+<div id="overlay">
+  <div class="hud">
+    <div class="row" style="flex-wrap:wrap">
+      <span class="stat" id="sTrack">track <b>—</b></span>
+      <span class="stat" id="sDone">placed <b>0/12</b></span>
+      <span class="stat" id="sWalk">walked <b>0 m</b></span>
+      <span class="stat" id="sDrift">drift <b>—</b></span>
+    </div>
+    <div id="prompt">Point at the ground and move the phone slowly.</div>
+    <div id="slider">
+      <div class="lbl"><span>rotate course</span><span id="rotVal">0°</span></div>
+      <input id="rot" type="range" min="0" max="359" value="0">
+    </div>
+  </div>
+
+  <div class="hud" style="text-align:center">
+    <div id="target">—</div>
+    <div id="tdist">&nbsp;</div>
+  </div>
+
+  <div>
+    <div class="btns" style="margin-bottom:8px">
+      <button class="b main" id="bMain">TAP GROUND</button>
+      <button class="b chk" id="bCheck" style="display:none">CHECK</button>
+    </div>
+    <div class="btns">
+      <button class="b sm" id="bSkip">Skip</button>
+      <button class="b sm" id="bPhase">Done placing →</button>
+      <button class="b sm" id="bEnd">Results</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= RESULTS ================= -->
+<div id="results">
+  <h2>Drift results</h2>
+  <div class="summary" id="summary"></div>
+  <table id="rtbl">
+    <thead><tr><th>Cone</th><th>Drift</th><th>ΔX</th><th>ΔY</th><th>Walked</th></tr></thead>
+    <tbody id="rbody"></tbody>
+  </table>
+  <div class="rbtns">
+    <button id="rCopy" class="main">Copy CSV</button>
+    <button id="rBack">Back to AR</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+
+/* ---------- course: 2022 MGymfun OLC Round 1 ----------
+   origin = SW corner (0,0); +x east (13.5 m), +y north (17 m) */
+const COURSE=[
+  {id:"SW",  x:0,    y:0,  c:"org", note:"origin corner"},
+  {id:"G1",  x:6,    y:0,  c:"grn", note:"gate SW"},
+  {id:"G2",  x:7.5,  y:0,  c:"grn", note:"gate SE"},
+  {id:"SE",  x:13.5, y:0,  c:"org", note:"corner"},
+  {id:"G3",  x:6,    y:3,  c:"grn", note:"gate NW"},
+  {id:"G4",  x:7.5,  y:3,  c:"grn", note:"gate NE"},
+  {id:"S1",  x:6,    y:4,  c:"red", note:"spine"},
+  {id:"S2",  x:6,    y:8,  c:"red", note:"spine"},
+  {id:"A1",  x:10,   y:8,  c:"blu", note:"arm"},
+  {id:"S3",  x:6,    y:12, c:"red", note:"spine"},
+  {id:"NW",  x:0,    y:17, c:"org", note:"corner"},
+  {id:"NE",  x:13.5, y:17, c:"org", note:"corner"}
+];
+const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
+
+/* ---------- state ---------- */
+const S={
+  phase:"scan",          // scan | rotate | place | check | done
+  anchored:false, yaw:0,
+  cones:[],              // {def, target:Vector3, placedAt:Vector3|null, checkAt:Vector3|null, walkAt:number}
+  cur:0,
+  walked:0, lastCam:null,
+  tracking:false
+};
+
+/* ---------- three.js ---------- */
+let renderer,scene,camera,reticle,courseGroup,hitSource=null,localSpace=null,viewerSpace=null,session=null;
+
+function initGL(){
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.01,100);
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setPixelRatio(devicePixelRatio);
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.xr.enabled=true;
+  document.body.appendChild(renderer.domElement);
+  renderer.domElement.style.position="fixed";
+  renderer.domElement.style.inset="0";
+  renderer.domElement.style.zIndex="0";
+
+  scene.add(new THREE.HemisphereLight(0xffffff,0x445566,1.1));
+  const d=new THREE.DirectionalLight(0xffffff,.7); d.position.set(1,3,2); scene.add(d);
+
+  // reticle
+  const rg=new THREE.RingGeometry(0.10,0.13,32).rotateX(-Math.PI/2);
+  reticle=new THREE.Mesh(rg,new THREE.MeshBasicMaterial({color:0x37c4ff}));
+  reticle.matrixAutoUpdate=false; reticle.visible=false;
+  scene.add(reticle);
+
+  courseGroup=new THREE.Group(); courseGroup.visible=false; scene.add(courseGroup);
+  addEventListener("resize",()=>{
+    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+  });
+}
+
+/* build ghost cones + ground outline */
+function buildCourse(){
+  while(courseGroup.children.length) courseGroup.remove(courseGroup.children[0]);
+  S.cones=[];
+
+  // perimeter outline on the ground
+  const pts=[[0,0],[13.5,0],[13.5,17],[0,17],[0,0]].map(p=>new THREE.Vector3(p[0],0.01,-p[1]));
+  courseGroup.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:0x37c4ff,transparent:true,opacity:.5})));
+  // gate box
+  const gp=[[6,0],[7.5,0],[7.5,3],[6,3],[6,0]].map(p=>new THREE.Vector3(p[0],0.01,-p[1]));
+  courseGroup.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(gp),
+    new THREE.LineBasicMaterial({color:0x39ff14,transparent:true,opacity:.6})));
+
+  COURSE.forEach((d,i)=>{
+    const g=new THREE.Group();
+    g.position.set(d.x,0,-d.y);
+    const col=COL[d.c];
+    // ghost cone
+    const cone=new THREE.Mesh(
+      new THREE.ConeGeometry(0.14,0.36,18),
+      new THREE.MeshLambertMaterial({color:col,transparent:true,opacity:.55}));
+    cone.position.y=0.18; g.add(cone);
+    // ground ring
+    const ring=new THREE.Mesh(
+      new THREE.RingGeometry(0.20,0.26,28).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.8,side:THREE.DoubleSide}));
+    ring.position.y=0.005; g.add(ring);
+    // vertical beacon so you can spot it from across the lot
+    const beam=new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012,0.012,2.2,6),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.30}));
+    beam.position.y=1.1; g.add(beam);
+    courseGroup.add(g);
+
+    S.cones.push({def:d,node:g,cone,ring,beam,target:null,placedAt:null,checkAt:null,walkAt:0});
+  });
+  courseGroup.visible=true;
+  refreshTargets();
+}
+
+/* world-space target positions (after anchor + yaw) */
+function refreshTargets(){
+  courseGroup.updateMatrixWorld(true);
+  S.cones.forEach(c=>{
+    c.target=new THREE.Vector3().setFromMatrixPosition(c.node.matrixWorld);
+  });
+}
+
+/* ---------- helpers ---------- */
+const flatDist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+function camPos(){
+  const p=new THREE.Vector3();
+  renderer.xr.getCamera(camera).getWorldPosition(p);
+  return p;
+}
+function activeIndex(){
+  // next unplaced (place phase) or next unchecked (check phase)
+  const key=S.phase==="check"?"checkAt":"placedAt";
+  for(let i=0;i<S.cones.length;i++){const j=(S.cur+i)%S.cones.length;if(!S.cones[j][key])return j;}
+  return -1;
+}
+function setPhase(p){
+  S.phase=p;
+  const main=$("bMain"),chk=$("bCheck");
+  if(p==="scan"){ main.style.display=""; chk.style.display="none"; main.textContent="TAP GROUND"; $("slider").classList.remove("on"); }
+  if(p==="rotate"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on"); }
+  if(p==="place"){ main.style.display=""; chk.style.display="none"; main.textContent="PLACED ✓"; $("slider").classList.remove("on");
+    $("bPhase").textContent="Done placing →"; }
+  if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
+    $("bPhase").textContent="↺ Back to placing"; }
+  updateHUD();
+}
+
+/* ---------- HUD ---------- */
+function updateHUD(){
+  const placed=S.cones.filter(c=>c.placedAt).length;
+  const checked=S.cones.filter(c=>c.checkAt).length;
+  $("sDone").innerHTML=(S.phase==="check"?"checked <b>":"placed <b>")+
+     (S.phase==="check"?checked:placed)+"/"+S.cones.length+"</b>";
+  $("sWalk").innerHTML="walked <b>"+S.walked.toFixed(0)+" m</b>";
+  $("sTrack").innerHTML="track <b>"+(S.tracking?"ok":"…")+"</b>";
+  $("sTrack").className="stat "+(S.tracking?"good":"warn");
+
+  const ds=S.cones.filter(c=>c.checkAt&&c.placedAt);
+  if(ds.length){
+    const mx=Math.max(...ds.map(c=>flatDist(c.checkAt,c.target)));
+    const el=$("sDrift"); el.innerHTML="max drift <b>"+(mx*100).toFixed(0)+" cm</b>";
+    el.className="stat "+(mx<0.10?"good":mx<0.30?"warn":"bad");
+  } else $("sDrift").innerHTML="drift <b>—</b>";
+
+  const i=activeIndex();
+  if(S.phase==="scan"){ $("prompt").innerHTML="Move slowly until the ring locks on the ground, then tap to drop the <b>SW corner</b>."; $("target").textContent="—"; $("tdist").innerHTML="&nbsp;"; }
+  else if(S.phase==="rotate"){ $("prompt").innerHTML="Rotate so the course fits your lot, then <b>LOCK</b>."; $("target").textContent="ROTATE"; $("tdist").textContent=S.yaw+"°"; }
+  else if(i<0){
+    $("prompt").innerHTML=S.phase==="check"?"All cones re-checked — open <b>Results</b>.":"All cones placed. Walk back and tap <b>Done placing →</b> to start checking.";
+    $("target").textContent="✓ ALL"; $("tdist").innerHTML="&nbsp;";
+  } else {
+    const c=S.cones[i];
+    $("target").textContent=c.def.id;
+    $("prompt").innerHTML=S.phase==="check"
+      ? "Aim the ring at the <b>base of the real cone</b> and tap CHECK."
+      : "Walk to the ghost marker, set a real cone on it, tap <b>PLACED</b>.";
+    if(S.anchored){
+      const d=flatDist(camPos(),c.target);
+      $("tdist").textContent=d.toFixed(2)+" m away · "+c.def.note;
+    }
+  }
+}
+
+/* ---------- interactions ---------- */
+function onMain(){
+  if(S.phase==="scan"){
+    if(!reticle.visible) return;
+    const p=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+    courseGroup.position.copy(p);
+    courseGroup.rotation.y=0; S.yaw=0;
+    buildCourse(); S.anchored=true;
+    reticle.visible=false;
+    setPhase("rotate");
+  } else if(S.phase==="rotate"){
+    refreshTargets(); setPhase("place");
+  } else if(S.phase==="place"){
+    const i=activeIndex(); if(i<0)return;
+    const c=S.cones[i];
+    c.placedAt=camPos().clone(); c.walkAt=S.walked;
+    c.cone.material.opacity=.16; c.ring.material.opacity=.25; c.beam.material.opacity=.08;
+    S.cur=(i+1)%S.cones.length;
+    updateHUD();
+  }
+}
+function onCheck(){
+  if(S.phase!=="check")return;
+  const i=activeIndex(); if(i<0)return;
+  // prefer the reticle hit point (aimed at the real cone base); fall back to standing position
+  let p;
+  if(reticle.visible) p=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+  else p=camPos().clone();
+  const c=S.cones[i];
+  c.checkAt=p.clone(); c.checkWalk=S.walked;
+  const d=flatDist(p,c.target);
+  c.cone.material.color.setHex(d<0.10?0x39ff14:d<0.30?0xff6a1a:0xff2d2d);
+  c.cone.material.opacity=.75;
+  S.cur=(i+1)%S.cones.length;
+  updateHUD();
+}
+$("bMain").onclick=onMain;
+$("bCheck").onclick=onCheck;
+$("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; updateHUD(); };
+$("bPhase").onclick=()=>{ setPhase(S.phase==="check"?"place":"check"); };
+$("bEnd").onclick=showResults;
+$("rot").oninput=e=>{
+  S.yaw=+e.target.value; $("rotVal").textContent=S.yaw+"°";
+  courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
+  refreshTargets(); updateHUD();
+};
+
+/* ---------- results ---------- */
+function results(){
+  return S.cones.filter(c=>c.checkAt).map(c=>{
+    const dx=c.checkAt.x-c.target.x, dz=c.checkAt.z-c.target.z;
+    return {id:c.def.id, drift:Math.hypot(dx,dz), dx, dy:-dz, walked:c.checkWalk||0};
+  });
+}
+function showResults(){
+  const r=results(), tb=$("rbody"); tb.innerHTML="";
+  r.forEach(x=>{
+    const cls=x.drift<0.10?"d-ok":x.drift<0.30?"d-mid":"d-bad";
+    tb.insertAdjacentHTML("beforeend",
+      `<tr><td>${x.id}</td><td class="${cls}">${(x.drift*100).toFixed(1)} cm</td>`+
+      `<td>${(x.dx*100).toFixed(0)}</td><td>${(x.dy*100).toFixed(0)}</td>`+
+      `<td>${x.walked.toFixed(0)} m</td></tr>`);
+  });
+  const sm=$("summary");
+  if(r.length){
+    const ds=r.map(x=>x.drift);
+    const mean=ds.reduce((a,b)=>a+b,0)/ds.length, max=Math.max(...ds);
+    const pct=S.walked>0?(max/S.walked*100):0;
+    sm.innerHTML=
+      `<div><span>cones re-checked</span><b>${r.length} / ${S.cones.length}</b></div>`+
+      `<div><span>mean drift</span><b>${(mean*100).toFixed(1)} cm</b></div>`+
+      `<div><span>max drift</span><b>${(max*100).toFixed(1)} cm</b></div>`+
+      `<div><span>total walked</span><b>${S.walked.toFixed(0)} m</b></div>`+
+      `<div><span>max drift / path</span><b>${pct.toFixed(2)} %</b></div>`;
+  } else sm.innerHTML='<div><span>No cones re-checked yet.</span><b>—</b></div>';
+  $("results").classList.add("on");
+}
+$("rBack").onclick=()=>$("results").classList.remove("on");
+$("rCopy").onclick=()=>{
+  const r=results();
+  let s="# ARCore drift test — MGymfun R1 13.5x17m\n";
+  s+=`# total_walked_m,${S.walked.toFixed(1)}\n`;
+  s+="cone,drift_cm,dx_cm,dy_cm,walked_at_m\n";
+  r.forEach(x=>s+=`${x.id},${(x.drift*100).toFixed(1)},${(x.dx*100).toFixed(1)},${(x.dy*100).toFixed(1)},${x.walked.toFixed(1)}\n`);
+  navigator.clipboard.writeText(s).then(()=>alert("CSV copied.")).catch(()=>alert(s));
+};
+
+/* ---------- XR loop ---------- */
+function onFrame(t,frame){
+  if(!frame){renderer.render(scene,camera);return;}
+  const pose=frame.getViewerPose(localSpace);
+  S.tracking=!!pose;
+
+  if(pose){
+    // integrate walked distance (horizontal only)
+    const p=camPos();
+    if(S.lastCam){
+      const d=Math.hypot(p.x-S.lastCam.x,p.z-S.lastCam.z);
+      if(d>0.02&&d<2) S.walked+=d;       // ignore jitter and relocalisation jumps
+    }
+    S.lastCam=p.clone();
+  }
+
+  // hit test for the reticle (scan phase, and check phase for aiming at cone bases)
+  if(hitSource&&(S.phase==="scan"||S.phase==="check")){
+    const hits=frame.getHitTestResults(hitSource);
+    if(hits.length){
+      const hp=hits[0].getPose(localSpace);
+      reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
+    } else reticle.visible=false;
+  } else reticle.visible=false;
+
+  if(t-(onFrame.last||0)>120){ onFrame.last=t; updateHUD(); }
+  renderer.render(scene,camera);
+}
+
+/* ---------- session start ---------- */
+async function start(){
+  try{
+    const opts={
+      requiredFeatures:["hit-test"],
+      optionalFeatures:["dom-overlay","local-floor","anchors"],
+      domOverlay:{root:$("overlay")}
+    };
+    session=await navigator.xr.requestSession("immersive-ar",opts);
+  }catch(e){ $("err").textContent="Could not start AR: "+e.message; return; }
+
+  $("launch").style.display="none"; $("gowrap").style.display="none";
+  $("overlay").classList.add("on");
+
+  renderer.xr.setReferenceSpaceType("local");
+  await renderer.xr.setSession(session);
+
+  try{ localSpace=await session.requestReferenceSpace("local-floor"); }
+  catch(e){ localSpace=await session.requestReferenceSpace("local"); }
+  renderer.xr.setReferenceSpace(localSpace);
+
+  viewerSpace=await session.requestReferenceSpace("viewer");
+  hitSource=await session.requestHitTestSource({space:viewerSpace});
+
+  session.addEventListener("end",()=>{
+    $("overlay").classList.remove("on"); $("launch").style.display=""; $("gowrap").style.display="";
+    hitSource=null; session=null;
+  });
+
+  setPhase("scan");
+  renderer.setAnimationLoop(onFrame);
+}
+
+/* ---------- boot ---------- */
+initGL();
+(async function(){
+  const go=$("go");
+  if(!navigator.xr){ go.textContent="WebXR not available"; $("err").textContent=
+    "Open this page in Chrome on an ARCore-supported Android device, over https:// (or localhost)."; return; }
+  let ok=false;
+  try{ ok=await navigator.xr.isSessionSupported("immersive-ar"); }catch(e){}
+  if(!ok){ go.textContent="AR not supported"; $("err").textContent=
+    "immersive-ar unsupported. Needs Chrome on Android with Google Play Services for AR installed, served over https://."; return; }
+  go.disabled=false; go.textContent="START AR"; go.onclick=start;
+})();
+})();
+</script>
+</body>
+</html>
