@@ -132,6 +132,7 @@
       <span class="stat" id="sDrift">drift <b>—</b></span>
     </div>
     <div id="prompt">Point at the ground and move the phone slowly.</div>
+    <div id="debug" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--faint);margin-top:6px;white-space:pre-wrap"></div>
     <div id="slider">
       <div class="lbl"><span>rotate course</span><span id="rotVal">0°</span></div>
       <input id="rot" type="range" min="0" max="359" value="0">
@@ -201,7 +202,8 @@ const S={
   cones:[],              // {def, target:Vector3, placedAt:Vector3|null, checkAt:Vector3|null, walkAt:number}
   cur:0,
   walked:0, lastCam:null,
-  tracking:false
+  tracking:false,
+  dbg:{refSpace:"?",frames:0,poseNull:0,poseOk:0,emulated:0,hitSourceOk:false,hitCount:0,hitTries:0,lastErr:""}
 };
 
 /* ---------- three.js ---------- */
@@ -436,9 +438,13 @@ $("rCopy").onclick=()=>{
 
 /* ---------- XR loop ---------- */
 function onFrame(t,frame){
+  const D=S.dbg;
   if(!frame){renderer.render(scene,camera);return;}
+  D.frames++;
   const pose=frame.getViewerPose(localSpace);
   S.tracking=!!pose;
+  if(pose){ D.poseOk++; D.emulated=pose.emulatedPosition?1:0; }
+  else D.poseNull++;
 
   if(pose){
     // integrate walked distance (horizontal only)
@@ -451,16 +457,26 @@ function onFrame(t,frame){
   }
 
   // hit test for the reticle (scan phase, and check phase for aiming at cone bases)
+  D.hitSourceOk=!!hitSource;
   if(hitSource&&(S.phase==="scan"||S.phase==="check")){
+    D.hitTries++;
     const hits=frame.getHitTestResults(hitSource);
     if(hits.length){
+      D.hitCount++;
       const hp=hits[0].getPose(localSpace);
       reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
     } else reticle.visible=false;
   } else reticle.visible=false;
 
-  if(t-(onFrame.last||0)>120){ onFrame.last=t; updateHUD(); }
+  if(t-(onFrame.last||0)>120){ onFrame.last=t; updateHUD(); updateDebug(); }
   renderer.render(scene,camera);
+}
+
+function updateDebug(){
+  const D=S.dbg;
+  $("debug").textContent=
+    `refSpace=${D.refSpace}  frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
+    `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
 }
 
 /* ---------- session start ---------- */
@@ -480,12 +496,14 @@ async function start(){
   renderer.xr.setReferenceSpaceType("local");
   await renderer.xr.setSession(session);
 
-  try{ localSpace=await session.requestReferenceSpace("local-floor"); }
-  catch(e){ localSpace=await session.requestReferenceSpace("local"); }
+  try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
+  catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
   renderer.xr.setReferenceSpace(localSpace);
 
   viewerSpace=await session.requestReferenceSpace("viewer");
-  hitSource=await session.requestHitTestSource({space:viewerSpace});
+  try{
+    hitSource=await session.requestHitTestSource({space:viewerSpace});
+  }catch(e){ S.dbg.lastErr="hitTestSource: "+e.message; }
 
   session.addEventListener("end",()=>{
     $("overlay").classList.remove("on"); $("launch").style.display=""; $("gowrap").style.display="";
