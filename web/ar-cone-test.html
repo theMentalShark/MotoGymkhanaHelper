@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23k</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23l</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -108,7 +108,7 @@
       <li>Use +/− to rotate the course (pivots around the green start/finish box) and fine-tune ground height. Watch the cross-hatch ground overlay to verify height.</li>
       <li>Tap <b>LOCK COURSE</b> once it's positioned correctly.</li>
       <li>Walk the course placing real cones on the red ghost markers as you go — no separate placing step.</li>
-      <li>Aim the ring at each real cone base and tap <b>CHECK</b> to log drift vs. the ghost target.</li>
+      <li>Aim the ring at each real cone base and hold steady — <b>CHECK</b> unlocks once the reading settles (~0.5s within 2cm), then it logs the averaged position vs. the ghost target.</li>
       <li>Read the drift table. Verify a couple with a tape measure.</li>
     </ol>
   </div>
@@ -212,6 +212,9 @@ const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
 // rotation pivots around this point since it's local (0,0,0) inside courseGroup
 const ORIGIN={x:6.75,y:1.5};
 const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user-adjustable with +/-
+const STABLE_RADIUS_M=0.02;  // CHECK sample must hold within this radius...
+const STABLE_WINDOW_MS=500;  // ...for at least this long before it's accepted
+const STABLE_MIN_SAMPLES=5;
 
 /* ---------- state ---------- */
 const S={
@@ -222,6 +225,7 @@ const S={
   cur:0,
   walked:0, lastCam:null,
   tracking:false,
+  chkBuf:[], chkMean:null, chkSpread:0, chkStable:false,   // rolling hit-test samples for a steady CHECK read
   dbg:{refSpace:"?",frames:0,poseNull:0,poseOk:0,emulated:0,hitSourceOk:false,hitCount:0,hitTries:0,lastErr:""}
 };
 
@@ -338,13 +342,14 @@ function activeIndex(){
   for(let i=0;i<S.cones.length;i++){const j=(S.cur+i)%S.cones.length;if(!S.cones[j].checkAt)return j;}
   return -1;
 }
+function resetChkBuf(){ S.chkBuf=[]; S.chkMean=null; S.chkSpread=0; S.chkStable=false; }
 function setPhase(p){
   S.phase=p;
   const main=$("bMain"),chk=$("bCheck");
   if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on");
     groundOverlay.visible=false; }
   if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
-    groundOverlay.visible=false; }
+    groundOverlay.visible=false; resetChkBuf(); }
   updateHUD();
 }
 
@@ -377,7 +382,12 @@ function updateHUD(){
   } else {
     const c=S.cones[i];
     $("target").textContent=c.def.id;
-    $("prompt").innerHTML="Aim the ring at the <b>base of the real cone</b> and tap CHECK.";
+    if(S.phase==="check"){
+      $("bCheck").disabled=!S.chkStable;
+      $("prompt").innerHTML=S.chkStable
+        ? "Steady — spread "+(S.chkSpread*100).toFixed(1)+"cm. Tap <b>CHECK</b>."
+        : "Aim the ring at the <b>base of the real cone</b> and hold steady…";
+    }
     if(S.anchored){
       const d=flatDist(camPos(),c.target);
       $("tdist").textContent=d.toFixed(2)+" m away · "+c.def.note;
@@ -396,22 +406,21 @@ function onMain(){
 }
 function onCheck(){
   if(S.phase!=="check")return;
+  if(!S.chkStable)return;   // require a settled average read before accepting
   const i=activeIndex(); if(i<0)return;
-  // prefer the reticle hit point (aimed at the real cone base); fall back to standing position
-  let p;
-  if(reticle.visible) p=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-  else p=camPos().clone();
+  const p=S.chkMean.clone();
   const c=S.cones[i];
-  c.checkAt=p.clone(); c.checkWalk=S.walked;
+  c.checkAt=p; c.checkWalk=S.walked;
   const d=flatDist(p,c.target);
   c.cone.material.color.setHex(d<0.10?0x39ff14:d<0.30?0xff6a1a:0xff2d2d);
   c.cone.material.opacity=.75;
   S.cur=(i+1)%S.cones.length;
+  resetChkBuf();
   updateHUD();
 }
 $("bMain").onclick=onMain;
 $("bCheck").onclick=onCheck;
-$("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; updateHUD(); };
+$("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; resetChkBuf(); updateHUD(); };
 $("bEnd").onclick=showResults;
 
 const ROT_STEP=5, HEIGHT_STEP=1;
@@ -509,8 +518,25 @@ function onFrame(t,frame){
             refreshTargets();
             groundOverlay.position.set(hitPos.x,groundY,hitPos.z);
             groundOverlay.visible=true;
+          } else if(S.phase==="check"){
+            const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+            S.chkBuf.push({p:hitPos,t});
+            while(S.chkBuf.length&&t-S.chkBuf[0].t>STABLE_WINDOW_MS) S.chkBuf.shift();
+            const n=S.chkBuf.length;
+            const mean=new THREE.Vector3();
+            S.chkBuf.forEach(s=>mean.add(s.p));
+            mean.multiplyScalar(1/n);
+            let maxDev=0;
+            S.chkBuf.forEach(s=>{ maxDev=Math.max(maxDev,flatDist(s.p,mean)); });
+            S.chkMean=mean; S.chkSpread=maxDev;
+            S.chkStable=n>=STABLE_MIN_SAMPLES && maxDev<STABLE_RADIUS_M &&
+              (t-S.chkBuf[0].t)>=STABLE_WINDOW_MS*0.8;
           }
-        } else { reticle.visible=false; if(S.phase==="aim") groundOverlay.visible=false; }
+        } else {
+          reticle.visible=false;
+          if(S.phase==="aim") groundOverlay.visible=false;
+          if(S.phase==="check") resetChkBuf();   // lost the hit — don't average across a gap
+        }
       } else reticle.visible=false;
     }
   }catch(e){ D.lastErr=(e&&e.message)||String(e); }
@@ -524,7 +550,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23k\n`+
+    `build 2026-07-23l\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -543,7 +569,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23k\nsetting up session…";
+  $("debug").textContent="build 2026-07-23l\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
