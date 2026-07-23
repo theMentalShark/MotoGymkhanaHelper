@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23l</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23m</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -215,6 +215,7 @@ const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user
 const STABLE_RADIUS_M=0.02;  // CHECK sample must hold within this radius...
 const STABLE_WINDOW_MS=500;  // ...for at least this long before it's accepted
 const STABLE_MIN_SAMPLES=5;
+const AIM_SMOOTH_MS=250;     // smoothing window for the live course-follow position while aiming
 
 /* ---------- state ---------- */
 const S={
@@ -226,6 +227,7 @@ const S={
   walked:0, lastCam:null,
   tracking:false,
   chkBuf:[], chkMean:null, chkSpread:0, chkStable:false,   // rolling hit-test samples for a steady CHECK read
+  aimBuf:[],                                               // rolling hit-test samples smoothing the live aim/anchor position
   dbg:{refSpace:"?",frames:0,poseNull:0,poseOk:0,emulated:0,hitSourceOk:false,hitCount:0,hitTries:0,lastErr:""}
 };
 
@@ -343,13 +345,14 @@ function activeIndex(){
   return -1;
 }
 function resetChkBuf(){ S.chkBuf=[]; S.chkMean=null; S.chkSpread=0; S.chkStable=false; }
+function resetAimBuf(){ S.aimBuf=[]; }
 function setPhase(p){
   S.phase=p;
   const main=$("bMain"),chk=$("bCheck");
   if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on");
     groundOverlay.visible=false; }
   if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
-    groundOverlay.visible=false; resetChkBuf(); }
+    groundOverlay.visible=false; resetChkBuf(); resetAimBuf(); }
   updateHUD();
 }
 
@@ -511,12 +514,19 @@ function onFrame(t,frame){
 
           if(S.phase==="aim"){
             const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-            const groundY=hitPos.y+S.heightIn*0.0254;
+            // smooth over a short rolling window so the anchor doesn't jitter frame-to-frame
+            S.aimBuf.push({p:hitPos,t});
+            while(S.aimBuf.length&&t-S.aimBuf[0].t>AIM_SMOOTH_MS) S.aimBuf.shift();
+            const aimMean=new THREE.Vector3();
+            S.aimBuf.forEach(s=>aimMean.add(s.p));
+            aimMean.multiplyScalar(1/S.aimBuf.length);
+
+            const groundY=aimMean.y+S.heightIn*0.0254;
             if(!S.builtOnce){ buildCourse(); S.builtOnce=true; S.anchored=true; }
-            courseGroup.position.set(hitPos.x,groundY,hitPos.z);
+            courseGroup.position.set(aimMean.x,groundY,aimMean.z);
             courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
             refreshTargets();
-            groundOverlay.position.set(hitPos.x,groundY,hitPos.z);
+            groundOverlay.position.set(aimMean.x,groundY,aimMean.z);
             groundOverlay.visible=true;
           } else if(S.phase==="check"){
             const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
@@ -534,7 +544,7 @@ function onFrame(t,frame){
           }
         } else {
           reticle.visible=false;
-          if(S.phase==="aim") groundOverlay.visible=false;
+          if(S.phase==="aim"){ groundOverlay.visible=false; resetAimBuf(); }
           if(S.phase==="check") resetChkBuf();   // lost the hit — don't average across a gap
         }
       } else reticle.visible=false;
@@ -550,7 +560,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23l\n`+
+    `build 2026-07-23m\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -569,7 +579,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23l\nsetting up session…";
+  $("debug").textContent="build 2026-07-23m\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
