@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23d</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23e</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -483,7 +483,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23d\n`+
+    `build 2026-07-23e\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -502,27 +502,33 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-
-  renderer.xr.setReferenceSpaceType("local");
-  await renderer.xr.setSession(session);
-
-  try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
-  catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
-  renderer.xr.setReferenceSpace(localSpace);
-
-  viewerSpace=await session.requestReferenceSpace("viewer");
-  try{
-    hitSource=await session.requestHitTestSource({space:viewerSpace});
-  }catch(e){ S.dbg.lastErr="hitTestSource: "+e.message; }
-
-  session.addEventListener("end",()=>{
-    $("overlay").classList.remove("on"); $("launch").style.display=""; $("gowrap").style.display="";
-    hitSource=null; session=null;
-  });
-
-  setPhase("scan");
-  renderer.setAnimationLoop(onFrame);
+  $("debug").textContent="build 2026-07-23e\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
+
+  try{
+    renderer.xr.setReferenceSpaceType("local");
+    await renderer.xr.setSession(session);
+
+    try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
+    catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
+    renderer.xr.setReferenceSpace(localSpace);
+
+    viewerSpace=await session.requestReferenceSpace("viewer");
+    try{
+      hitSource=await session.requestHitTestSource({space:viewerSpace});
+    }catch(e){ S.dbg.lastErr="hitTestSource: "+e.message; }
+
+    session.addEventListener("end",()=>{
+      $("overlay").classList.remove("on"); $("launch").style.display=""; $("gowrap").style.display="";
+      hitSource=null; session=null;
+    });
+
+    setPhase("scan");
+    renderer.setAnimationLoop(onFrame);
+  }catch(e){
+    S.dbg.lastErr="SETUP FAILED: "+((e&&e.message)||String(e));
+    updateDebug();
+  }
 }
 
 /* ---------- boot ---------- */
