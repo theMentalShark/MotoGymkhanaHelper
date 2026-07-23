@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23j</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23k</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -105,10 +105,10 @@
     <h2>PROCEDURE</h2>
     <ol>
       <li>Point the phone at the ground — the course follows wherever the camera's center beam hits, live.</li>
-      <li>Use the sliders to rotate the course and fine-tune ground height (it pivots around the green start/finish box). Watch the cross-hatch ground overlay to verify height.</li>
+      <li>Use +/− to rotate the course (pivots around the green start/finish box) and fine-tune ground height. Watch the cross-hatch ground overlay to verify height.</li>
       <li>Tap <b>LOCK COURSE</b> once it's positioned correctly.</li>
-      <li>Walk to each ghost cone (red; the start/finish box is green), put a real cone on it, tap <b>PLACED</b>.</li>
-      <li>When all are down, walk back around. Aim the ring at each real cone base and tap <b>CHECK</b>.</li>
+      <li>Walk the course placing real cones on the red ghost markers as you go — no separate placing step.</li>
+      <li>Aim the ring at each real cone base and tap <b>CHECK</b> to log drift vs. the ghost target.</li>
       <li>Read the drift table. Verify a couple with a tape measure.</li>
     </ol>
   </div>
@@ -135,10 +135,22 @@
     <div id="prompt">Point at the ground and move the phone slowly.</div>
     <div id="debug" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--faint);margin-top:6px;white-space:pre-wrap"></div>
     <div id="slider">
-      <div class="lbl"><span>rotate course</span><span id="rotVal">0°</span></div>
-      <input id="rot" type="range" min="0" max="359" value="0">
-      <div class="lbl" style="margin-top:6px"><span>ground height</span><span id="heightVal">-37in</span></div>
-      <input id="height" type="range" min="-80" max="40" value="-37">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em">rotate</span>
+        <div class="row" style="gap:6px">
+          <button class="b sm" id="rotMinus" style="padding:9px 16px;font-size:16px">−</button>
+          <span id="rotVal" style="font-family:ui-monospace,monospace;min-width:48px;text-align:center">0°</span>
+          <button class="b sm" id="rotPlus" style="padding:9px 16px;font-size:16px">+</button>
+        </div>
+      </div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
+        <span style="font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em">ground</span>
+        <div class="row" style="gap:6px">
+          <button class="b sm" id="hMinus" style="padding:9px 16px;font-size:16px">−</button>
+          <span id="heightVal" style="font-family:ui-monospace,monospace;min-width:56px;text-align:center">-37in</span>
+          <button class="b sm" id="hPlus" style="padding:9px 16px;font-size:16px">+</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -154,7 +166,6 @@
     </div>
     <div class="btns">
       <button class="b sm" id="bSkip">Skip</button>
-      <button class="b sm" id="bPhase">Done placing →</button>
       <button class="b sm" id="bEnd">Results</button>
     </div>
   </div>
@@ -200,14 +211,14 @@ const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
 // re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin —
 // rotation pivots around this point since it's local (0,0,0) inside courseGroup
 const ORIGIN={x:6.75,y:1.5};
-const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user-adjustable via slider
+const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user-adjustable with +/-
 
 /* ---------- state ---------- */
 const S={
-  phase:"aim",            // aim | place | check | done
+  phase:"aim",            // aim | check
   anchored:false, yaw:0, heightIn:HEIGHT_DEFAULT_IN,
   builtOnce:false,
-  cones:[],              // {def, target:Vector3, placedAt:Vector3|null, checkAt:Vector3|null, walkAt:number}
+  cones:[],              // {def, target:Vector3, checkAt:Vector3|null, checkWalk:number}
   cur:0,
   walked:0, lastCam:null,
   tracking:false,
@@ -302,7 +313,7 @@ function buildCourse(){
     ring.position.y=0.005; g.add(ring);
     courseGroup.add(g);
 
-    S.cones.push({def:d,node:g,cone,ring,target:null,placedAt:null,checkAt:null,walkAt:0});
+    S.cones.push({def:d,node:g,cone,ring,target:null,checkAt:null,checkWalk:0});
   });
   courseGroup.visible=true;
   refreshTargets();
@@ -324,9 +335,7 @@ function camPos(){
   return p;
 }
 function activeIndex(){
-  // next unplaced (place phase) or next unchecked (check phase)
-  const key=S.phase==="check"?"checkAt":"placedAt";
-  for(let i=0;i<S.cones.length;i++){const j=(S.cur+i)%S.cones.length;if(!S.cones[j][key])return j;}
+  for(let i=0;i<S.cones.length;i++){const j=(S.cur+i)%S.cones.length;if(!S.cones[j].checkAt)return j;}
   return -1;
 }
 function setPhase(p){
@@ -334,24 +343,20 @@ function setPhase(p){
   const main=$("bMain"),chk=$("bCheck");
   if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on");
     groundOverlay.visible=false; }
-  if(p==="place"){ main.style.display=""; chk.style.display="none"; main.textContent="PLACED ✓"; $("slider").classList.remove("on");
-    $("bPhase").textContent="Done placing →"; groundOverlay.visible=false; }
   if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
-    $("bPhase").textContent="↺ Back to placing"; }
+    groundOverlay.visible=false; }
   updateHUD();
 }
 
 /* ---------- HUD ---------- */
 function updateHUD(){
-  const placed=S.cones.filter(c=>c.placedAt).length;
   const checked=S.cones.filter(c=>c.checkAt).length;
-  $("sDone").innerHTML=(S.phase==="check"?"checked <b>":"placed <b>")+
-     (S.phase==="check"?checked:placed)+"/"+S.cones.length+"</b>";
+  $("sDone").innerHTML="checked <b>"+checked+"/"+S.cones.length+"</b>";
   $("sWalk").innerHTML="walked <b>"+S.walked.toFixed(0)+" m</b>";
   $("sTrack").innerHTML="track <b>"+(S.tracking?"ok":"…")+"</b>";
   $("sTrack").className="stat "+(S.tracking?"good":"warn");
 
-  const ds=S.cones.filter(c=>c.checkAt&&c.placedAt);
+  const ds=S.cones.filter(c=>c.checkAt);
   if(ds.length){
     const mx=Math.max(...ds.map(c=>flatDist(c.checkAt,c.target)));
     const el=$("sDrift"); el.innerHTML="max drift <b>"+(mx*100).toFixed(0)+" cm</b>";
@@ -367,14 +372,12 @@ function updateHUD(){
     $("tdist").textContent=S.builtOnce?("yaw "+S.yaw+"° · ground "+S.heightIn+"in"):" ";
   }
   else if(i<0){
-    $("prompt").innerHTML=S.phase==="check"?"All cones re-checked — open <b>Results</b>.":"All cones placed. Walk back and tap <b>Done placing →</b> to start checking.";
+    $("prompt").innerHTML="All cones re-checked — open <b>Results</b>.";
     $("target").textContent="✓ ALL"; $("tdist").innerHTML="&nbsp;";
   } else {
     const c=S.cones[i];
     $("target").textContent=c.def.id;
-    $("prompt").innerHTML=S.phase==="check"
-      ? "Aim the ring at the <b>base of the real cone</b> and tap CHECK."
-      : "Walk to the ghost marker, set a real cone on it, tap <b>PLACED</b>.";
+    $("prompt").innerHTML="Aim the ring at the <b>base of the real cone</b> and tap CHECK.";
     if(S.anchored){
       const d=flatDist(camPos(),c.target);
       $("tdist").textContent=d.toFixed(2)+" m away · "+c.def.note;
@@ -388,14 +391,7 @@ function onMain(){
     if(!S.builtOnce) return;   // nothing to lock until the course has appeared on the ground
     refreshTargets();
     groundOverlay.visible=false;
-    setPhase("place");
-  } else if(S.phase==="place"){
-    const i=activeIndex(); if(i<0)return;
-    const c=S.cones[i];
-    c.placedAt=camPos().clone(); c.walkAt=S.walked;
-    c.cone.material.opacity=.16; c.ring.material.opacity=.25;
-    S.cur=(i+1)%S.cones.length;
-    updateHUD();
+    setPhase("check");
   }
 }
 function onCheck(){
@@ -416,17 +412,19 @@ function onCheck(){
 $("bMain").onclick=onMain;
 $("bCheck").onclick=onCheck;
 $("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; updateHUD(); };
-$("bPhase").onclick=()=>{ setPhase(S.phase==="check"?"place":"check"); };
 $("bEnd").onclick=showResults;
-$("rot").oninput=e=>{
-  S.yaw=+e.target.value; $("rotVal").textContent=S.yaw+"°";
+
+const ROT_STEP=5, HEIGHT_STEP=1;
+function setYaw(v){
+  S.yaw=((v%360)+360)%360; $("rotVal").textContent=S.yaw+"°";
   courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
   refreshTargets(); updateHUD();
-};
-$("height").oninput=e=>{
-  S.heightIn=+e.target.value; $("heightVal").textContent=S.heightIn+"in";
-  updateHUD();
-};
+}
+function setHeightIn(v){ S.heightIn=v; $("heightVal").textContent=S.heightIn+"in"; updateHUD(); }
+$("rotPlus").onclick=()=>setYaw(S.yaw+ROT_STEP);
+$("rotMinus").onclick=()=>setYaw(S.yaw-ROT_STEP);
+$("hPlus").onclick=()=>setHeightIn(S.heightIn+HEIGHT_STEP);
+$("hMinus").onclick=()=>setHeightIn(S.heightIn-HEIGHT_STEP);
 
 /* ---------- results ---------- */
 function results(){
@@ -526,7 +524,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23j\n`+
+    `build 2026-07-23k\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -545,12 +543,15 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23j\nsetting up session…";
+  $("debug").textContent="build 2026-07-23k\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(session);
+    // WebXR supplies its own per-frame projection matrix from the device, driven by this
+    // render-state depth range — three.js's camera.near/far alone don't control it in XR.
+    try{ session.updateRenderState({depthNear:0.05,depthFar:100}); }catch(e){}
 
     try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
     catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
