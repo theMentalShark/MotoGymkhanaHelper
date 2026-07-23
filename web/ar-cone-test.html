@@ -91,7 +91,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23g</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23h</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -262,24 +262,19 @@ function buildCourse(){
     const g=new THREE.Group();
     g.position.set(d.x-ORIGIN.x,0,-(d.y-ORIGIN.y));
     const col=COL[d.c];
-    // ghost cone
+    // ghost cone — small and flat on the ground, not a tall pole
     const cone=new THREE.Mesh(
-      new THREE.ConeGeometry(0.14,0.36,18),
+      new THREE.ConeGeometry(0.14,0.12,18),
       new THREE.MeshLambertMaterial({color:col,transparent:true,opacity:.55}));
-    cone.position.y=0.18; g.add(cone);
+    cone.position.y=0.06; g.add(cone);
     // ground ring
     const ring=new THREE.Mesh(
       new THREE.RingGeometry(0.20,0.26,28).rotateX(-Math.PI/2),
       new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.8,side:THREE.DoubleSide}));
     ring.position.y=0.005; g.add(ring);
-    // low marker post — kept below head height so it doesn't block the view up close
-    const beam=new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012,0.012,0.6,6),
-      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.30}));
-    beam.position.y=0.3; g.add(beam);
     courseGroup.add(g);
 
-    S.cones.push({def:d,node:g,cone,ring,beam,target:null,placedAt:null,checkAt:null,walkAt:0});
+    S.cones.push({def:d,node:g,cone,ring,target:null,placedAt:null,checkAt:null,walkAt:0});
   });
   courseGroup.visible=true;
   refreshTargets();
@@ -376,7 +371,7 @@ function onMain(){
     const i=activeIndex(); if(i<0)return;
     const c=S.cones[i];
     c.placedAt=camPos().clone(); c.walkAt=S.walked;
-    c.cone.material.opacity=.16; c.ring.material.opacity=.25; c.beam.material.opacity=.08;
+    c.cone.material.opacity=.16; c.ring.material.opacity=.25;
     S.cur=(i+1)%S.cones.length;
     updateHUD();
   }
@@ -493,7 +488,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23g\n`+
+    `build 2026-07-23h\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -512,7 +507,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23g\nsetting up session…";
+  $("debug").textContent="build 2026-07-23h\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
