@@ -109,7 +109,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23q</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23r</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -238,7 +238,7 @@ const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a,yel:0xffd21e};
 // Its true 3D position is triangulated from several camera rays sighting that ONE real cone
 // (no hit-test plane, no second measured point). Heading comes from the rotate control.
 const ORIGIN={x:5,y:-3};
-const MIN_SIGHTS=2;          // need at least this many rays to triangulate the origin
+const MIN_SIGHTS=3;          // need at least this many rays; spread them around (not in a line)
 const ROT_STEP=5;            // degrees per rotate tap
 const STABLE_RADIUS_M=0.02;  // CHECK sample must hold within this radius...
 const STABLE_WINDOW_MS=500;  // ...for at least this long before it's accepted
@@ -392,7 +392,7 @@ function closestPointToRays(rays){
      A[0][0]*(A[1][1]*A[2][2]-A[1][2]*A[2][1])
     -A[0][1]*(A[1][0]*A[2][2]-A[1][2]*A[2][0])
     +A[0][2]*(A[1][0]*A[2][1]-A[1][1]*A[2][0]);
-  if(Math.abs(det)<1e-6) return {p:null,ok:false};
+  if(Math.abs(det)<1e-4) return {p:null,ok:false};  // relax: allow slightly imperfect geometry
   // inverse * b (Cramer)
   const inv=(r,c)=>{
     const m=[[0,1,2].filter(i=>i!==r),[0,1,2].filter(i=>i!==c)];
@@ -489,7 +489,7 @@ function captureSight(){
 function computeOrigin(){
   if(S.sights.length<MIN_SIGHTS) return;
   const r=closestPointToRays(S.sights);
-  if(!r.ok){ alert("Sightlines too parallel — walk further around the cone and add another."); return; }
+  if(!r.ok){ alert("Sightlines too parallel. Take more sights (4-5) spread around the cone — North, South, East, West — not in a line. Step further away if close."); return; }
   S.originPt=r.p;
   if(!S.builtOnce){ buildCourse(); S.builtOnce=true; }
   S.anchored=true;
@@ -642,7 +642,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23q\n`+
+    `build 2026-07-23r\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -661,7 +661,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23q\nsetting up session…";
+  $("debug").textContent="build 2026-07-23r\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
