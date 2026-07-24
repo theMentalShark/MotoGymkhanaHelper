@@ -102,7 +102,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23n</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23o</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -232,6 +232,9 @@ const STABLE_MIN_SAMPLES=5;
 const AIM_SMOOTH_MS=250;     // smoothing window for the live course-follow position while aiming
 const ROT_STEP=5;            // degrees per rotate tap
 const DIST_STEP=0.05;        // metres per distance tap (nudge first cone along the sightline)
+const GROUND_OFFSET_M=-1.68; // drop the course this far below the hit point (approx phone
+                             // height above the floor), so cones sit on the ground even when
+                             // the hit test anchors near camera height
 
 /* ---------- state ---------- */
 const S={
@@ -268,7 +271,7 @@ function makeCrossTexture(){
 
 function initGL(){
   scene=new THREE.Scene();
-  camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.01,100);
+  camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.01,500);
   renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
   renderer.setPixelRatio(devicePixelRatio);
   renderer.setSize(innerWidth,innerHeight);
@@ -581,7 +584,7 @@ function onFrame(t,frame){
             S.aimBuf.forEach(s=>aimMean.add(s.p));
             aimMean.multiplyScalar(1/S.aimBuf.length);
 
-            const groundY=aimMean.y;
+            const groundY=aimMean.y+GROUND_OFFSET_M;
             if(!S.builtOnce){ buildCourse(); S.builtOnce=true; S.anchored=true; }
             courseGroup.position.set(aimMean.x,groundY,aimMean.z);
             courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
@@ -620,7 +623,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23n\n`+
+    `build 2026-07-23o\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -639,7 +642,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23n\nsetting up session…";
+  $("debug").textContent="build 2026-07-23o\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
@@ -647,7 +650,7 @@ async function start(){
     await renderer.xr.setSession(session);
     // WebXR supplies its own per-frame projection matrix from the device, driven by this
     // render-state depth range — three.js's camera.near/far alone don't control it in XR.
-    try{ session.updateRenderState({depthNear:0.05,depthFar:100}); }catch(e){}
+    try{ session.updateRenderState({depthNear:0.05,depthFar:500}); }catch(e){}
 
     try{ localSpace=await session.requestReferenceSpace("local-floor"); S.dbg.refSpace="local-floor"; }
     catch(e){ localSpace=await session.requestReferenceSpace("local"); S.dbg.refSpace="local"; }
