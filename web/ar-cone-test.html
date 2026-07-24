@@ -102,7 +102,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23o</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23p</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -113,22 +113,24 @@
   </div>
 
   <div class="card">
-    <h2>PROCEDURE</h2>
+    <h2>PROCEDURE — two-point ground registration</h2>
+    <p>No hit-test ground guessing. The course is pinned to two real points you physically
+       touch, so ghosts land on real cones from every angle.</p>
     <ol>
-      <li>Point the phone at the ground — the course follows the camera's center beam, live. Rotate with +/− to fit the lot (pivots on the first cone, the SW corner).</li>
-      <li>Tap <b>LOCK COURSE</b> with the first cone on its real spot. This freezes the course and saves your camera + cone positions.</li>
-      <li>Walk ~90° around the first cone, then use the <b>distance</b> +/− to slide the course along your original sightline until the ghost first cone sits exactly on the ground spot from this new angle — that triangulates an accurate ground + first cone. Tap <b>START CHECK</b>.</li>
+      <li>Rest the phone flat on the ground <b>touching the bottom-left starter cone</b>, hold still, tap <b>SET ORIGIN</b>.</li>
+      <li>Walk to the <b>NE corner cone</b>, rest the phone on the ground touching it, tap <b>SET NE</b>. The course snaps into place (position, heading, ground height, and scale all locked to those two points).</li>
+      <li>Look around — the ghosts should sit on the real cones from any angle. If off, tap <b>↻ Re-reg</b> and redo, touching the cones more precisely.</li>
       <li><b>Hide UI</b> (top-right) any time the panels block your view.</li>
-      <li>Walk the course placing real cones on the red ghost markers as you go — no separate placing step.</li>
-      <li>Aim the ring at each real cone base and hold steady — <b>CHECK</b> unlocks once the reading settles (~0.5s within 2cm), then it logs the averaged position vs. the ghost target.</li>
+      <li>Aim the ring at each real cone base and hold steady — <b>CHECK</b> unlocks once the reading settles (~0.5s within 2cm), then it logs the position vs. the ghost target.</li>
       <li>Read the drift table. Verify a couple with a tape measure.</li>
     </ol>
+    <p>Needs the real course already on the ground (start + NE corner cones at minimum).</p>
   </div>
 
   <div class="card">
     <h2>COURSE — 11.5 × 17 m</h2>
     <p>2022 MGymfun OLC Round 1. 8 cones + 4 gate posts (gate 1.5×3 m, south of the
-       start line). Origin = SW corner, +X east along the 11.5 m edge, +Y north along the 17 m edge.</p>
+       start line). Origin = bottom-left starter cone, +X east, +Y north.</p>
   </div>
 
   <div id="err"></div>
@@ -176,10 +178,11 @@
 
   <div>
     <div class="btns" style="margin-bottom:8px">
-      <button class="b main" id="bMain">LOCK COURSE</button>
+      <button class="b main" id="bMain">SET ORIGIN</button>
       <button class="b chk" id="bCheck" style="display:none">CHECK</button>
     </div>
     <div class="btns">
+      <button class="b sm" id="bReg" style="display:none">↻ Re-reg</button>
       <button class="b sm" id="bSkip">Skip</button>
       <button class="b sm" id="bEnd">Results</button>
     </div>
@@ -223,32 +226,27 @@ const COURSE=[
   {id:"SE", x:11.5, y:0,   c:"red", note:"corner"}
 ];
 const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a,yel:0xffd21e};
-// origin = the SW cone (bottom-left), local (0,0,0) inside courseGroup. Rotation and the
-// distance nudge both pivot on / act through this first cone.
-const ORIGIN={x:0,y:0};
+// origin = the bottom-left starter (gate) cone GC(5,-3): local (0,0,0) inside courseGroup,
+// and the FIRST point you physically register on the ground. No hit-test plane guessing —
+// the whole course is pinned to two real touched points (see computeRegistration).
+const ORIGIN={x:5,y:-3};
+const REF_ID="NE";           // second registration cone — a far corner for a long baseline
 const STABLE_RADIUS_M=0.02;  // CHECK sample must hold within this radius...
 const STABLE_WINDOW_MS=500;  // ...for at least this long before it's accepted
 const STABLE_MIN_SAMPLES=5;
-const AIM_SMOOTH_MS=250;     // smoothing window for the live course-follow position while aiming
-const ROT_STEP=5;            // degrees per rotate tap
-const DIST_STEP=0.05;        // metres per distance tap (nudge first cone along the sightline)
-const GROUND_OFFSET_M=-1.68; // drop the course this far below the hit point (approx phone
-                             // height above the floor), so cones sit on the ground even when
-                             // the hit test anchors near camera height
 
 /* ---------- state ---------- */
 const S={
-  phase:"aim",            // aim | adjust | check
-  anchored:false, yaw:0,
+  phase:"reg0",           // reg0 | reg1 | check
+  anchored:false,
   builtOnce:false,
   cones:[],              // {def, target:Vector3, checkAt:Vector3|null, checkWalk:number}
   cur:0,
   walked:0, lastCam:null,
   tracking:false,
-  // saved at LOCK: camera pose + frozen anchor, and the sightline the distance nudge slides along
-  lockCam:null, baseAnchor:null, lockDir:null, distOffset:0,
+  reg:{p0:null,p1:null},  // the two physically-touched ground points (origin cone, ref cone)
+  regScale:1, regLen:0,
   chkBuf:[], chkMean:null, chkSpread:0, chkStable:false,   // rolling hit-test samples for a steady CHECK read
-  aimBuf:[],                                               // rolling hit-test samples smoothing the live aim/anchor position
   dbg:{refSpace:"?",frames:0,poseNull:0,poseOk:0,emulated:0,hitSourceOk:false,hitCount:0,hitTries:0,lastErr:""}
 };
 
@@ -366,16 +364,13 @@ function activeIndex(){
   return -1;
 }
 function resetChkBuf(){ S.chkBuf=[]; S.chkMean=null; S.chkSpread=0; S.chkStable=false; }
-function resetAimBuf(){ S.aimBuf=[]; }
 function setPhase(p){
   S.phase=p;
   const main=$("bMain"),chk=$("bCheck");
-  if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE";
-    $("slider").classList.add("on"); $("distRow").style.display="none"; }
-  if(p==="adjust"){ main.style.display=""; chk.style.display="none"; main.textContent="START CHECK";
-    $("slider").classList.add("on"); $("distRow").style.display=""; groundOverlay.visible=true; }
-  if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
-    $("distRow").style.display="none"; groundOverlay.visible=false; resetChkBuf(); resetAimBuf(); }
+  $("slider").classList.remove("on"); $("distRow").style.display="none"; groundOverlay.visible=false;
+  if(p==="reg0"){ main.style.display=""; chk.style.display="none"; main.textContent="SET ORIGIN"; $("bReg").style.display="none"; }
+  else if(p==="reg1"){ main.style.display=""; chk.style.display="none"; main.textContent="SET "+REF_ID; $("bReg").style.display=""; }
+  else if(p==="check"){ main.style.display="none"; chk.style.display=""; $("bReg").style.display=""; resetChkBuf(); }
   updateHUD();
 }
 
@@ -395,18 +390,15 @@ function updateHUD(){
   } else $("sDrift").innerHTML="drift <b>—</b>";
 
   const i=activeIndex();
-  if(S.phase==="aim"){
-    $("prompt").innerHTML=S.builtOnce
-      ? "Course follows where you point. Rotate to fit, then <b>LOCK COURSE</b> on the first cone."
-      : "Point at the ground and move slowly until the course appears.";
-    $("target").textContent=S.builtOnce?"AIM":"—";
-    $("tdist").textContent=S.builtOnce?("yaw "+S.yaw+"°"):" ";
+  if(S.phase==="reg0"){
+    $("prompt").innerHTML="Rest the phone flat on the ground <b>touching the bottom-left starter cone</b>, "+
+      "hold still, then tap <b>SET ORIGIN</b>.";
+    $("target").textContent="ORIGIN"; $("tdist").textContent="point 1 of 2";
   }
-  else if(S.phase==="adjust"){
-    $("prompt").innerHTML="Locked. Walk ~90° around the first cone, then nudge <b>distance</b> "+
-      "until the ghost sits on the real spot. <b>START CHECK</b> when it lines up.";
-    $("target").textContent="SET";
-    $("tdist").textContent="yaw "+S.yaw+"° · dist "+(S.distOffset>=0?"+":"")+S.distOffset.toFixed(2)+" m";
+  else if(S.phase==="reg1"){
+    $("prompt").innerHTML="Walk to the <b>"+REF_ID+" corner cone</b>, rest the phone on the ground touching it, "+
+      "hold still, then tap <b>SET "+REF_ID+"</b>.";
+    $("target").textContent=REF_ID; $("tdist").textContent="point 2 of 2";
   }
   else if(i<0){
     $("prompt").innerHTML="All cones re-checked — open <b>Results</b>.";
@@ -428,46 +420,37 @@ function updateHUD(){
 }
 
 /* ---------- interactions ---------- */
-/* LOCK: freeze the course where it sits, and save the camera pose + the frozen anchor.
-   The distance nudge then slides the whole course (pivoting on the first cone) along the
-   horizontal camera->anchor sightline, so you can walk 90 deg around the first cone and
-   dial its distance until the ghost lands on the real ground spot. */
-function lockCourse(){
+/* Two-point ground registration. Instead of hit-testing ARCore's (unreliable) ground plane,
+   we pin the whole course to two points you physically touch on the real ground: the origin
+   cone and a far reference cone. ARCore's relative tracking is accurate, so a frame built from
+   two real points puts every ghost on its real cone from ALL angles. Forcing the known course
+   spacing also cancels any ARCore scale error. */
+function computeRegistration(){
+  if(!S.builtOnce){ buildCourse(); S.builtOnce=true; }
+  S.anchored=true;
+  const p0=S.reg.p0, p1=S.reg.p1;
+  const ref=COURSE.find(c=>c.id===REF_ID);
+  // reference cone position in course-local space (relative to ORIGIN), on the ground plane
+  const lx=ref.x-ORIGIN.x, lz=-(ref.y-ORIGIN.y);
+  const localAngle=Math.atan2(lz,lx), localLen=Math.hypot(lx,lz);
+  // horizontal vector between the two touched world points
+  const wx=p1.x-p0.x, wz=p1.z-p0.z;
+  const worldAngle=Math.atan2(wz,wx), worldLen=Math.hypot(wx,wz);
+  // scale the course so the two reference cones match ARCore's measured spacing (cancels scale error)
+  const scale=worldLen>0.05 ? worldLen/localLen : 1;
+  courseGroup.scale.setScalar(scale);
+  // three.js Y-rotation by θ maps an xz-angle φ -> φ-θ, so θ = localAngle - worldAngle aligns the ref
+  courseGroup.rotation.set(0, localAngle-worldAngle, 0);
+  courseGroup.position.set(p0.x, p0.y, p0.z);   // origin cone at the first touched point (real ground height)
+  courseGroup.visible=true;
   refreshTargets();
-  S.lockCam=camPos();
-  S.baseAnchor=courseGroup.position.clone();
-  let dx=S.baseAnchor.x-S.lockCam.x, dz=S.baseAnchor.z-S.lockCam.z;
-  let len=Math.hypot(dx,dz);
-  if(len<0.3){   // standing on top of the anchor — use camera forward instead
-    const fwd=new THREE.Vector3(); renderer.xr.getCamera(camera).getWorldDirection(fwd);
-    dx=fwd.x; dz=fwd.z; len=Math.hypot(dx,dz)||1;
-  }
-  S.lockDir={x:dx/len,z:dz/len};
-  S.distOffset=0; $("distVal").textContent="+0.00 m";
-  groundOverlay.position.copy(S.baseAnchor); groundOverlay.visible=true;
-}
-function setDist(delta){
-  if(!S.baseAnchor||!S.lockDir) return;
-  S.distOffset+=delta;
-  const x=S.baseAnchor.x+S.lockDir.x*S.distOffset;
-  const z=S.baseAnchor.z+S.lockDir.z*S.distOffset;
-  courseGroup.position.set(x,S.baseAnchor.y,z);
-  refreshTargets();
-  groundOverlay.position.set(x,S.baseAnchor.y,z);
-  $("distVal").textContent=(S.distOffset>=0?"+":"")+S.distOffset.toFixed(2)+" m";
-  updateHUD();
+  S.regScale=scale; S.regLen=worldLen;
 }
 function onMain(){
-  if(S.phase==="aim"){
-    if(!S.builtOnce) return;   // nothing to lock until the course has appeared on the ground
-    lockCourse();
-    setPhase("adjust");
-  } else if(S.phase==="adjust"){
-    refreshTargets();
-    groundOverlay.visible=false;
-    setPhase("check");
-  }
+  if(S.phase==="reg0"){ S.reg.p0=camPos(); setPhase("reg1"); }
+  else if(S.phase==="reg1"){ S.reg.p1=camPos(); computeRegistration(); setPhase("check"); }
 }
+function restartReg(){ S.reg.p0=S.reg.p1=null; courseGroup.visible=false; setPhase("reg0"); }
 function onCheck(){
   if(S.phase!=="check")return;
   if(!S.chkStable)return;   // require a settled average read before accepting
@@ -484,18 +467,9 @@ function onCheck(){
 }
 $("bMain").onclick=onMain;
 $("bCheck").onclick=onCheck;
-$("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; resetChkBuf(); updateHUD(); };
+$("bSkip").onclick=()=>{ if(!S.cones.length)return; S.cur=(activeIndex()+1)%S.cones.length; resetChkBuf(); updateHUD(); };
 $("bEnd").onclick=showResults;
-
-function setYaw(v){
-  S.yaw=((v%360)+360)%360; $("rotVal").textContent=S.yaw+"°";
-  courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
-  refreshTargets(); updateHUD();
-}
-$("rotPlus").onclick=()=>setYaw(S.yaw+ROT_STEP);
-$("rotMinus").onclick=()=>setYaw(S.yaw-ROT_STEP);
-$("dPlus").onclick=()=>setDist(DIST_STEP);
-$("dMinus").onclick=()=>setDist(-DIST_STEP);
+$("bReg").onclick=restartReg;
 $("uiToggle").onclick=()=>{
   const min=$("overlay").classList.toggle("ui-min");
   $("uiToggle").textContent=min?"Show UI":"Hide UI";
@@ -564,10 +538,10 @@ function onFrame(t,frame){
         S.lastCam=p.clone();
       }
 
-      // hit test: camera-center beam onto the ground. Drives live course placement while
-      // aiming, and the aiming reticle while checking real cone bases.
+      // hit test: camera-center beam onto the ground. Used only while checking real cone bases
+      // (registration itself uses physically-touched camera positions, not the ground plane).
       D.hitSourceOk=!!hitSource;
-      if(hitSource&&(S.phase==="aim"||S.phase==="check")){
+      if(hitSource&&S.phase==="check"){
         D.hitTries++;
         const hits=frame.getHitTestResults(hitSource);
         if(hits.length){
@@ -575,23 +549,7 @@ function onFrame(t,frame){
           const hp=hits[0].getPose(localSpace);
           reticle.visible=true; reticle.matrix.fromArray(hp.transform.matrix);
 
-          if(S.phase==="aim"){
-            const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-            // smooth over a short rolling window so the anchor doesn't jitter frame-to-frame
-            S.aimBuf.push({p:hitPos,t});
-            while(S.aimBuf.length&&t-S.aimBuf[0].t>AIM_SMOOTH_MS) S.aimBuf.shift();
-            const aimMean=new THREE.Vector3();
-            S.aimBuf.forEach(s=>aimMean.add(s.p));
-            aimMean.multiplyScalar(1/S.aimBuf.length);
-
-            const groundY=aimMean.y+GROUND_OFFSET_M;
-            if(!S.builtOnce){ buildCourse(); S.builtOnce=true; S.anchored=true; }
-            courseGroup.position.set(aimMean.x,groundY,aimMean.z);
-            courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
-            refreshTargets();
-            groundOverlay.position.set(aimMean.x,groundY,aimMean.z);
-            groundOverlay.visible=true;
-          } else if(S.phase==="check"){
+          {
             const hitPos=new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
             S.chkBuf.push({p:hitPos,t});
             while(S.chkBuf.length&&t-S.chkBuf[0].t>STABLE_WINDOW_MS) S.chkBuf.shift();
@@ -607,8 +565,7 @@ function onFrame(t,frame){
           }
         } else {
           reticle.visible=false;
-          if(S.phase==="aim"){ groundOverlay.visible=false; resetAimBuf(); }
-          if(S.phase==="check") resetChkBuf();   // lost the hit — don't average across a gap
+          resetChkBuf();   // lost the hit — don't average across a gap
         }
       } else reticle.visible=false;
     }
@@ -623,7 +580,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23o\n`+
+    `build 2026-07-23p\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -642,7 +599,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23o\nsetting up session…";
+  $("debug").textContent="build 2026-07-23p\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
@@ -665,7 +622,7 @@ async function start(){
       hitSource=null; session=null;
     });
 
-    setPhase("aim");
+    setPhase("reg0");
     renderer.setAnimationLoop(onFrame);
   }catch(e){
     S.dbg.lastErr="SETUP FAILED: "+((e&&e.message)||String(e));
