@@ -83,6 +83,17 @@
   .rbtns button{flex:1;padding:14px;border-radius:10px;background:#232935;color:var(--ink);
     border:1px solid var(--line);font-size:13px;font-weight:600}
   .rbtns button.main{background:var(--org);color:#1a1209}
+
+  /* ---------- UI hide toggle ---------- */
+  #uiToggle{position:absolute;top:8px;right:8px;pointer-events:auto;z-index:2;
+    background:var(--panel);border:1px solid var(--line);color:var(--dim);
+    border-radius:10px;padding:8px 11px;font-size:12px;font-weight:600;
+    backdrop-filter:blur(8px)}
+  #uiToggle:active{filter:brightness(1.35)}
+  #overlay.ui-min #infoBlock,
+  #overlay.ui-min #targetHud,
+  #overlay.ui-min .btns{display:none}
+  #overlay.ui-min .hud{background:transparent;border-color:transparent;backdrop-filter:none}
 </style>
 </head>
 <body>
@@ -91,7 +102,7 @@
 <div id="launch">
   <h1>AR Cone Layout</h1>
   <div class="sub">ARCore drift test · MGymfun R1</div>
-  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23m</div>
+  <div class="sub" id="buildTag" style="color:var(--org)">build 2026-07-23n</div>
 
   <div class="card">
     <h2>WHAT THIS MEASURES</h2>
@@ -104,9 +115,10 @@
   <div class="card">
     <h2>PROCEDURE</h2>
     <ol>
-      <li>Point the phone at the ground — the course follows wherever the camera's center beam hits, live.</li>
-      <li>Use +/− to rotate the course (pivots around the green start/finish box) and fine-tune ground height. Watch the cross-hatch ground overlay to verify height.</li>
-      <li>Tap <b>LOCK COURSE</b> once it's positioned correctly.</li>
+      <li>Point the phone at the ground — the course follows the camera's center beam, live. Rotate with +/− to fit the lot (pivots on the first cone, the SW corner).</li>
+      <li>Tap <b>LOCK COURSE</b> with the first cone on its real spot. This freezes the course and saves your camera + cone positions.</li>
+      <li>Walk ~90° around the first cone, then use the <b>distance</b> +/− to slide the course along your original sightline until the ghost first cone sits exactly on the ground spot from this new angle — that triangulates an accurate ground + first cone. Tap <b>START CHECK</b>.</li>
+      <li><b>Hide UI</b> (top-right) any time the panels block your view.</li>
       <li>Walk the course placing real cones on the red ghost markers as you go — no separate placing step.</li>
       <li>Aim the ring at each real cone base and hold steady — <b>CHECK</b> unlocks once the reading settles (~0.5s within 2cm), then it logs the averaged position vs. the ghost target.</li>
       <li>Read the drift table. Verify a couple with a tape measure.</li>
@@ -114,9 +126,9 @@
   </div>
 
   <div class="card">
-    <h2>COURSE — 13.5 × 17 m</h2>
-    <p>2022 MGymfun OLC Round 1. 8 cones + 4 gate posts. Origin = SW corner,
-       +X east along the 13.5 m edge, +Y north along the 17 m edge.</p>
+    <h2>COURSE — 11.5 × 17 m</h2>
+    <p>2022 MGymfun OLC Round 1. 8 cones + 4 gate posts (gate 1.5×3 m, south of the
+       start line). Origin = SW corner, +X east along the 11.5 m edge, +Y north along the 17 m edge.</p>
   </div>
 
   <div id="err"></div>
@@ -125,15 +137,18 @@
 
 <!-- ================= AR HUD ================= -->
 <div id="overlay">
+  <button id="uiToggle">Hide UI</button>
   <div class="hud">
-    <div class="row" style="flex-wrap:wrap">
-      <span class="stat" id="sTrack">track <b>—</b></span>
-      <span class="stat" id="sDone">placed <b>0/12</b></span>
-      <span class="stat" id="sWalk">walked <b>0 m</b></span>
-      <span class="stat" id="sDrift">drift <b>—</b></span>
+    <div id="infoBlock">
+      <div class="row" style="flex-wrap:wrap">
+        <span class="stat" id="sTrack">track <b>—</b></span>
+        <span class="stat" id="sDone">placed <b>0/12</b></span>
+        <span class="stat" id="sWalk">walked <b>0 m</b></span>
+        <span class="stat" id="sDrift">drift <b>—</b></span>
+      </div>
+      <div id="prompt">Point at the ground and move the phone slowly.</div>
+      <div id="debug" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--faint);margin-top:6px;white-space:pre-wrap"></div>
     </div>
-    <div id="prompt">Point at the ground and move the phone slowly.</div>
-    <div id="debug" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--faint);margin-top:6px;white-space:pre-wrap"></div>
     <div id="slider">
       <div class="row" style="justify-content:space-between;align-items:center">
         <span style="font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em">rotate</span>
@@ -143,18 +158,18 @@
           <button class="b sm" id="rotPlus" style="padding:9px 16px;font-size:16px">+</button>
         </div>
       </div>
-      <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
-        <span style="font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em">ground</span>
+      <div class="row" id="distRow" style="justify-content:space-between;align-items:center;margin-top:8px;display:none">
+        <span style="font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em">distance</span>
         <div class="row" style="gap:6px">
-          <button class="b sm" id="hMinus" style="padding:9px 16px;font-size:16px">−</button>
-          <span id="heightVal" style="font-family:ui-monospace,monospace;min-width:56px;text-align:center">-37in</span>
-          <button class="b sm" id="hPlus" style="padding:9px 16px;font-size:16px">+</button>
+          <button class="b sm" id="dMinus" style="padding:9px 16px;font-size:16px">−</button>
+          <span id="distVal" style="font-family:ui-monospace,monospace;min-width:70px;text-align:center">+0.00 m</span>
+          <button class="b sm" id="dPlus" style="padding:9px 16px;font-size:16px">+</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="hud" style="text-align:center">
+  <div class="hud" id="targetHud" style="text-align:center">
     <div id="target">—</div>
     <div id="tdist">&nbsp;</div>
   </div>
@@ -192,40 +207,43 @@
 const $=id=>document.getElementById(id);
 
 /* ---------- course: 2022 MGymfun OLC Round 1 ----------
-   origin = SW corner (0,0); +x east (13.5 m), +y north (17 m) */
+   origin = SW corner (0,0); +x east (11.5 m), +y north (17 m) */
 const COURSE=[
-  {id:"SW",  x:0,    y:0,  c:"red", note:"origin corner"},
-  {id:"G1",  x:6,    y:0,  c:"grn", note:"gate SW"},
-  {id:"G2",  x:7.5,  y:0,  c:"grn", note:"gate SE"},
-  {id:"SE",  x:13.5, y:0,  c:"red", note:"corner"},
-  {id:"G3",  x:6,    y:3,  c:"grn", note:"gate NW"},
-  {id:"G4",  x:7.5,  y:3,  c:"grn", note:"gate NE"},
-  {id:"S1",  x:6,    y:4,  c:"red", note:"spine"},
-  {id:"S2",  x:6,    y:8,  c:"red", note:"spine"},
-  {id:"A1",  x:10,   y:8,  c:"red", note:"arm"},
-  {id:"S3",  x:6,    y:12, c:"red", note:"spine"},
-  {id:"NW",  x:0,    y:17, c:"red", note:"corner"},
-  {id:"NE",  x:13.5, y:17, c:"red", note:"corner"}
+  {id:"SW", x:0,    y:0,   c:"red", note:"origin corner"},
+  {id:"GA", x:5,    y:0,   c:"yel", note:"gate NW post"},
+  {id:"GB", x:6.5,  y:0,   c:"yel", note:"gate NE post"},
+  {id:"GC", x:5,    y:-3,  c:"yel", note:"gate SW post"},
+  {id:"GD", x:6.5,  y:-3,  c:"yel", note:"gate SE post"},
+  {id:"A1", x:3.75, y:5,   c:"red", note:"arm left"},
+  {id:"A2", x:7.75, y:5,   c:"red", note:"arm right"},
+  {id:"P2", x:5.75, y:9,   c:"red", note:"spine mid"},
+  {id:"P1", x:5.75, y:13,  c:"red", note:"spine top"},
+  {id:"NW", x:0,    y:17,  c:"red", note:"corner"},
+  {id:"NE", x:11.5, y:17,  c:"red", note:"corner"},
+  {id:"SE", x:11.5, y:0,   c:"red", note:"corner"}
 ];
-const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a};
-// re-center coords on the start/finish gate box (G1-G4), so that box is the anchor origin —
-// rotation pivots around this point since it's local (0,0,0) inside courseGroup
-const ORIGIN={x:6.75,y:1.5};
-const HEIGHT_DEFAULT_IN=-37; // inches; starting ground-height calibration, user-adjustable with +/-
+const COL={grn:0x39ff14,red:0xff2d2d,blu:0x4d7dff,org:0xff6a1a,yel:0xffd21e};
+// origin = the SW cone (bottom-left), local (0,0,0) inside courseGroup. Rotation and the
+// distance nudge both pivot on / act through this first cone.
+const ORIGIN={x:0,y:0};
 const STABLE_RADIUS_M=0.02;  // CHECK sample must hold within this radius...
 const STABLE_WINDOW_MS=500;  // ...for at least this long before it's accepted
 const STABLE_MIN_SAMPLES=5;
 const AIM_SMOOTH_MS=250;     // smoothing window for the live course-follow position while aiming
+const ROT_STEP=5;            // degrees per rotate tap
+const DIST_STEP=0.05;        // metres per distance tap (nudge first cone along the sightline)
 
 /* ---------- state ---------- */
 const S={
-  phase:"aim",            // aim | check
-  anchored:false, yaw:0, heightIn:HEIGHT_DEFAULT_IN,
+  phase:"aim",            // aim | adjust | check
+  anchored:false, yaw:0,
   builtOnce:false,
   cones:[],              // {def, target:Vector3, checkAt:Vector3|null, checkWalk:number}
   cur:0,
   walked:0, lastCam:null,
   tracking:false,
+  // saved at LOCK: camera pose + frozen anchor, and the sightline the distance nudge slides along
+  lockCam:null, baseAnchor:null, lockDir:null, distOffset:0,
   chkBuf:[], chkMean:null, chkSpread:0, chkStable:false,   // rolling hit-test samples for a steady CHECK read
   aimBuf:[],                                               // rolling hit-test samples smoothing the live aim/anchor position
   dbg:{refSpace:"?",frames:0,poseNull:0,poseOk:0,emulated:0,hitSourceOk:false,hitCount:0,hitTries:0,lastErr:""}
@@ -290,18 +308,18 @@ function buildCourse(){
   while(courseGroup.children.length) courseGroup.remove(courseGroup.children[0]);
   S.cones=[];
 
-  // perimeter outline on the ground
-  const pts=[[0,0],[13.5,0],[13.5,17],[0,17],[0,0]]
+  // perimeter outline on the ground (11.5 x 17 m)
+  const pts=[[0,0],[11.5,0],[11.5,17],[0,17],[0,0]]
     .map(p=>new THREE.Vector3(p[0]-ORIGIN.x,0.01,-(p[1]-ORIGIN.y)));
   courseGroup.add(new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({color:0x37c4ff,transparent:true,opacity:.5})));
-  // gate box (start/finish)
-  const gp=[[6,0],[7.5,0],[7.5,3],[6,3],[6,0]]
+  // gate box (start/finish) — 1.5 x 3 m, hangs south of the start line
+  const gp=[[5,0],[6.5,0],[6.5,-3],[5,-3],[5,0]]
     .map(p=>new THREE.Vector3(p[0]-ORIGIN.x,0.01,-(p[1]-ORIGIN.y)));
   courseGroup.add(new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(gp),
-    new THREE.LineBasicMaterial({color:0x39ff14,transparent:true,opacity:.6})));
+    new THREE.LineBasicMaterial({color:0xffd21e,transparent:true,opacity:.6})));
 
   COURSE.forEach((d,i)=>{
     const g=new THREE.Group();
@@ -349,10 +367,12 @@ function resetAimBuf(){ S.aimBuf=[]; }
 function setPhase(p){
   S.phase=p;
   const main=$("bMain"),chk=$("bCheck");
-  if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE"; $("slider").classList.add("on");
-    groundOverlay.visible=false; }
+  if(p==="aim"){ main.style.display=""; chk.style.display="none"; main.textContent="LOCK COURSE";
+    $("slider").classList.add("on"); $("distRow").style.display="none"; }
+  if(p==="adjust"){ main.style.display=""; chk.style.display="none"; main.textContent="START CHECK";
+    $("slider").classList.add("on"); $("distRow").style.display=""; groundOverlay.visible=true; }
   if(p==="check"){ main.style.display="none"; chk.style.display=""; $("slider").classList.remove("on");
-    groundOverlay.visible=false; resetChkBuf(); resetAimBuf(); }
+    $("distRow").style.display="none"; groundOverlay.visible=false; resetChkBuf(); resetAimBuf(); }
   updateHUD();
 }
 
@@ -374,10 +394,16 @@ function updateHUD(){
   const i=activeIndex();
   if(S.phase==="aim"){
     $("prompt").innerHTML=S.builtOnce
-      ? "Course follows where you point. Adjust rotation/ground height, then <b>LOCK COURSE</b>."
+      ? "Course follows where you point. Rotate to fit, then <b>LOCK COURSE</b> on the first cone."
       : "Point at the ground and move slowly until the course appears.";
     $("target").textContent=S.builtOnce?"AIM":"—";
-    $("tdist").textContent=S.builtOnce?("yaw "+S.yaw+"° · ground "+S.heightIn+"in"):" ";
+    $("tdist").textContent=S.builtOnce?("yaw "+S.yaw+"°"):" ";
+  }
+  else if(S.phase==="adjust"){
+    $("prompt").innerHTML="Locked. Walk ~90° around the first cone, then nudge <b>distance</b> "+
+      "until the ghost sits on the real spot. <b>START CHECK</b> when it lines up.";
+    $("target").textContent="SET";
+    $("tdist").textContent="yaw "+S.yaw+"° · dist "+(S.distOffset>=0?"+":"")+S.distOffset.toFixed(2)+" m";
   }
   else if(i<0){
     $("prompt").innerHTML="All cones re-checked — open <b>Results</b>.";
@@ -399,9 +425,41 @@ function updateHUD(){
 }
 
 /* ---------- interactions ---------- */
+/* LOCK: freeze the course where it sits, and save the camera pose + the frozen anchor.
+   The distance nudge then slides the whole course (pivoting on the first cone) along the
+   horizontal camera->anchor sightline, so you can walk 90 deg around the first cone and
+   dial its distance until the ghost lands on the real ground spot. */
+function lockCourse(){
+  refreshTargets();
+  S.lockCam=camPos();
+  S.baseAnchor=courseGroup.position.clone();
+  let dx=S.baseAnchor.x-S.lockCam.x, dz=S.baseAnchor.z-S.lockCam.z;
+  let len=Math.hypot(dx,dz);
+  if(len<0.3){   // standing on top of the anchor — use camera forward instead
+    const fwd=new THREE.Vector3(); renderer.xr.getCamera(camera).getWorldDirection(fwd);
+    dx=fwd.x; dz=fwd.z; len=Math.hypot(dx,dz)||1;
+  }
+  S.lockDir={x:dx/len,z:dz/len};
+  S.distOffset=0; $("distVal").textContent="+0.00 m";
+  groundOverlay.position.copy(S.baseAnchor); groundOverlay.visible=true;
+}
+function setDist(delta){
+  if(!S.baseAnchor||!S.lockDir) return;
+  S.distOffset+=delta;
+  const x=S.baseAnchor.x+S.lockDir.x*S.distOffset;
+  const z=S.baseAnchor.z+S.lockDir.z*S.distOffset;
+  courseGroup.position.set(x,S.baseAnchor.y,z);
+  refreshTargets();
+  groundOverlay.position.set(x,S.baseAnchor.y,z);
+  $("distVal").textContent=(S.distOffset>=0?"+":"")+S.distOffset.toFixed(2)+" m";
+  updateHUD();
+}
 function onMain(){
   if(S.phase==="aim"){
     if(!S.builtOnce) return;   // nothing to lock until the course has appeared on the ground
+    lockCourse();
+    setPhase("adjust");
+  } else if(S.phase==="adjust"){
     refreshTargets();
     groundOverlay.visible=false;
     setPhase("check");
@@ -426,17 +484,19 @@ $("bCheck").onclick=onCheck;
 $("bSkip").onclick=()=>{ S.cur=(activeIndex()+1)%S.cones.length; resetChkBuf(); updateHUD(); };
 $("bEnd").onclick=showResults;
 
-const ROT_STEP=5, HEIGHT_STEP=1;
 function setYaw(v){
   S.yaw=((v%360)+360)%360; $("rotVal").textContent=S.yaw+"°";
   courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
   refreshTargets(); updateHUD();
 }
-function setHeightIn(v){ S.heightIn=v; $("heightVal").textContent=S.heightIn+"in"; updateHUD(); }
 $("rotPlus").onclick=()=>setYaw(S.yaw+ROT_STEP);
 $("rotMinus").onclick=()=>setYaw(S.yaw-ROT_STEP);
-$("hPlus").onclick=()=>setHeightIn(S.heightIn+HEIGHT_STEP);
-$("hMinus").onclick=()=>setHeightIn(S.heightIn-HEIGHT_STEP);
+$("dPlus").onclick=()=>setDist(DIST_STEP);
+$("dMinus").onclick=()=>setDist(-DIST_STEP);
+$("uiToggle").onclick=()=>{
+  const min=$("overlay").classList.toggle("ui-min");
+  $("uiToggle").textContent=min?"Show UI":"Hide UI";
+};
 
 /* ---------- results ---------- */
 function results(){
@@ -471,7 +531,7 @@ function showResults(){
 $("rBack").onclick=()=>$("results").classList.remove("on");
 $("rCopy").onclick=()=>{
   const r=results();
-  let s="# ARCore drift test — MGymfun R1 13.5x17m\n";
+  let s="# ARCore drift test — MGymfun R1 11.5x17m\n";
   s+=`# total_walked_m,${S.walked.toFixed(1)}\n`;
   s+="cone,drift_cm,dx_cm,dy_cm,walked_at_m\n";
   r.forEach(x=>s+=`${x.id},${(x.drift*100).toFixed(1)},${(x.dx*100).toFixed(1)},${(x.dy*100).toFixed(1)},${x.walked.toFixed(1)}\n`);
@@ -521,7 +581,7 @@ function onFrame(t,frame){
             S.aimBuf.forEach(s=>aimMean.add(s.p));
             aimMean.multiplyScalar(1/S.aimBuf.length);
 
-            const groundY=aimMean.y+S.heightIn*0.0254;
+            const groundY=aimMean.y;
             if(!S.builtOnce){ buildCourse(); S.builtOnce=true; S.anchored=true; }
             courseGroup.position.set(aimMean.x,groundY,aimMean.z);
             courseGroup.rotation.y=THREE.MathUtils.degToRad(S.yaw);
@@ -560,7 +620,7 @@ function onFrame(t,frame){
 function updateDebug(){
   const D=S.dbg;
   $("debug").textContent=
-    `build 2026-07-23m\n`+
+    `build 2026-07-23n\n`+
     `cb=${D.cbCount||0}  noFrame=${D.noFrame||0}  refSpace=${D.refSpace}\n`+
     `frames=${D.frames}  pose ok/null=${D.poseOk}/${D.poseNull}  emulated=${D.emulated}\n`+
     `hitSource=${D.hitSourceOk}  hitTries=${D.hitTries}  hits=${D.hitCount}${D.lastErr?"\nerr: "+D.lastErr:""}`;
@@ -579,7 +639,7 @@ async function start(){
 
   $("launch").style.display="none"; $("gowrap").style.display="none";
   $("overlay").classList.add("on");
-  $("debug").textContent="build 2026-07-23m\nsetting up session…";
+  $("debug").textContent="build 2026-07-23n\nsetting up session…";
   setInterval(updateDebug,300);   // fallback: keep debug box alive even if the XR frame loop never calls back
 
   try{
